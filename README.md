@@ -4,7 +4,6 @@
   <p><strong>Frame-level evidence for AI-assisted QA</strong></p>
 
   <p>
-    <a href="https://github.com/WheresRace/clipqa-mcp/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/WheresRace/clipqa-mcp/actions/workflows/ci.yml/badge.svg" /></a>
     <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-7c3aed" /></a>
     <img alt="Node 20+" src="https://img.shields.io/badge/node-20%2B-22c55e" />
     <img alt="Platform: Windows" src="https://img.shields.io/badge/platform-Windows-2563eb" />

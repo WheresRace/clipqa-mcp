@@ -54,6 +54,8 @@ export class MediaProcessor {
     threshold = 0.25,
     maxChanges = 8,
   ): Promise<number[]> {
+    if (threshold <= 0 || threshold >= 1) throw new Error("Scene threshold must be between 0 and 1.");
+    if (!Number.isInteger(maxChanges) || maxChanges < 1) throw new Error("maxChanges must be at least 1.");
     const result = await this.runner.run(this.ffmpegPath, [
       "-hide_banner",
       "-loglevel",
@@ -74,6 +76,7 @@ export class MediaProcessor {
       .map((match) => Number(match[1]))
       .filter(Number.isFinite);
     if (timestamps.length <= maxChanges) return timestamps;
+    if (maxChanges === 1) return [timestamps[0]!];
     const step = (timestamps.length - 1) / (maxChanges - 1);
     return Array.from({ length: maxChanges }, (_, index) => timestamps[Math.round(index * step)]!);
   }

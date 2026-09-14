@@ -68,7 +68,24 @@ export async function selectEncoder(
   const result = await runner.run(ffmpegPath, ["-hide_banner", "-encoders"]);
   const available = result.stdout + result.stderr;
   for (const candidate of ["h264_nvenc", "h264_qsv", "h264_amf"]) {
-    if (available.includes(candidate)) return candidate;
+    if (!available.includes(candidate)) continue;
+    const probe = await runner.run(ffmpegPath, [
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-f",
+      "lavfi",
+      "-i",
+      "color=c=black:s=64x64:d=0.1",
+      "-frames:v",
+      "1",
+      "-c:v",
+      candidate,
+      "-f",
+      "null",
+      "-",
+    ]);
+    if (probe.code === 0) return candidate;
   }
   return "libx264";
 }

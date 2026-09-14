@@ -91,6 +91,9 @@ export async function createServer(config: ClipQaConfig): Promise<McpServer> {
     async ({ sessionId, label, kind, data }) => {
       try {
         const session = await store.update(sessionId, (current) => {
+          if (current.state !== "recording") {
+            throw new Error(`Cannot mark an event on a ${current.state} session.`);
+          }
           const timestampMs = Math.max(0, Date.now() - Date.parse(current.startedAt));
           return {
             ...current,

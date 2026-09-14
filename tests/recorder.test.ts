@@ -53,4 +53,19 @@ describe("selectEncoder", () => {
     };
     await expect(selectEncoder("auto", "ffmpeg", runner)).resolves.toBe("libx264");
   });
+
+  it("skips a compiled hardware encoder when the device cannot use it", async () => {
+    let call = 0;
+    const runner: CommandRunner = {
+      run: async () => {
+        call += 1;
+        if (call === 1) {
+          return { code: 0, stdout: " V..... h264_nvenc\n V..... h264_qsv", stderr: "" };
+        }
+        if (call === 2) return { code: 1, stdout: "", stderr: "No NVENC capable devices found" };
+        return { code: 0, stdout: "", stderr: "" };
+      },
+    };
+    await expect(selectEncoder("auto", "ffmpeg", runner)).resolves.toBe("h264_qsv");
+  });
 });
