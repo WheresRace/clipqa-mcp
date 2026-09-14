@@ -2,6 +2,11 @@
 
 All notable changes will be documented here.
 
+## 0.1.3 - 2026-09-14
+
+- Keep installation guidance on the verified direct GitHub route until the package is published to the npm registry.
+- Report the correct server version during MCP initialization.
+
 ## 0.1.2 - 2026-09-14
 
 - Include the compiled server in GitHub checkouts so direct and global GitHub installs do not require TypeScript during installation.

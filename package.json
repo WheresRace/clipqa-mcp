@@ -1,6 +1,6 @@
 {
   "name": "clipqa-mcp",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Background window recording and frame-level QA evidence for AI agents via MCP.",
   "type": "module",
   "bin": {

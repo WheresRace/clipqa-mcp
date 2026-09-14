@@ -53,13 +53,6 @@ Run the current GitHub release directly with npm:
 npx -y github:WheresRace/clipqa-mcp
 ```
 
-Or install globally:
-
-```powershell
-npm install --global github:WheresRace/clipqa-mcp
-clipqa-mcp
-```
-
 ### MCP client configuration
 
 ```json
@@ -148,6 +141,7 @@ npm run build
 ## Current limitations
 
 - The capture backend is Windows-only.
+- The package is released through GitHub; npm registry publication is planned after wider testing.
 - A minimized target may stop producing useful frames.
 - Scene-change detection is intentionally simple and may miss subtle motion or over-select busy scenes.
 - Video shows symptoms. Logs, application state, and deterministic reproduction steps are still needed to identify many root causes.

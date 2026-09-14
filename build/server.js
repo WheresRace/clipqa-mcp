@@ -23,7 +23,7 @@ export async function createServer(config) {
     await store.recoverInterrupted();
     const recorder = new Recorder(store, config.ffmpegPath, runner);
     const media = new MediaProcessor(config.ffmpegPath, config.ffprobePath, runner);
-    const server = new McpServer({ name: "clipqa-mcp", version: "0.1.0" });
+    const server = new McpServer({ name: "clipqa-mcp", version: "0.1.3" });
     server.registerTool("list_windows", {
         description: "List visible Windows application windows that can be recorded. Read-only.",
         inputSchema: z.object({}),
