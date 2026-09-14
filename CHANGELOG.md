@@ -2,6 +2,10 @@
 
 All notable changes will be documented here.
 
+## 0.1.2 - 2026-09-14
+
+- Include the compiled server in GitHub checkouts so direct and global GitHub installs do not require TypeScript during installation.
+
 ## 0.1.1 - 2026-09-14
 
 - Make direct GitHub installs build the executable automatically.
