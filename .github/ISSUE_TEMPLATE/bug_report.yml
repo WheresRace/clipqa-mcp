@@ -1,0 +1,56 @@
+name: Bug report
+description: Report a reproducible ClipQA problem
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for helping improve ClipQA. Remove sensitive content from recordings and logs before attaching them.
+  - type: input
+    id: version
+    attributes:
+      label: ClipQA version
+      placeholder: 0.1.0
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Windows, Node.js, and GPU
+      placeholder: Windows 11 24H2, Node 22, NVIDIA RTX 4070
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      options:
+        - Window discovery
+        - Recording
+        - Frame extraction
+        - Contact sheet
+        - MCP connection
+        - Benchmark
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: Include the MCP tool calls and sanitized errors when possible.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: I removed private information from attached recordings, screenshots, and logs.
+          required: true

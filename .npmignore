@@ -1,0 +1,5 @@
+tests/
+benchmarks/
+docs/
+.github/
+vitest.config.ts

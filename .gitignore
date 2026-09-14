@@ -1,0 +1,9 @@
+node_modules/
+dist/
+build/
+coverage/
+.clipqa/
+*.log
+.env
+.DS_Store
+Thumbs.db

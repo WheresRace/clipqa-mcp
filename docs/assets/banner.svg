@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="360" viewBox="0 0 1200 360" role="img" aria-labelledby="title desc">
+  <title id="title">ClipQA MCP</title>
+  <desc id="desc">A timeline of application frames being inspected by an AI quality assurance system.</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#080b16"/>
+      <stop offset="0.55" stop-color="#111a36"/>
+      <stop offset="1" stop-color="#20104a"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#38bdf8"/>
+      <stop offset="1" stop-color="#a78bfa"/>
+    </linearGradient>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="9" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="1200" height="360" rx="28" fill="url(#background)"/>
+  <circle cx="1020" cy="40" r="240" fill="#7c3aed" opacity=".12"/>
+  <circle cx="1130" cy="310" r="170" fill="#0ea5e9" opacity=".10"/>
+  <g transform="translate(72 72)">
+    <rect width="216" height="152" rx="16" fill="#151b2f" stroke="#334155" stroke-width="2"/>
+    <rect x="14" y="14" width="188" height="110" rx="10" fill="#222b46"/>
+    <circle cx="108" cy="69" r="31" fill="#38bdf8" opacity=".9"/>
+    <path d="M98 52l31 17-31 18z" fill="#08111f"/>
+    <rect x="14" y="135" width="112" height="5" rx="2.5" fill="#475569"/>
+    <rect x="14" y="135" width="64" height="5" rx="2.5" fill="#38bdf8"/>
+    <circle cx="78" cy="137.5" r="6" fill="#e0f2fe"/>
+  </g>
+  <g transform="translate(334 91)">
+    <path d="M0 58h91" stroke="url(#accent)" stroke-width="4" stroke-linecap="round"/>
+    <path d="M76 44l17 14-17 14" fill="none" stroke="#a78bfa" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <g transform="translate(460 67)">
+    <rect width="112" height="82" rx="12" fill="#1e293b" stroke="#475569"/>
+    <rect x="10" y="10" width="92" height="62" rx="7" fill="#25314f"/>
+    <rect x="24" y="47" width="65" height="10" rx="5" fill="#38bdf8"/>
+    <rect x="590" y="0" width="112" height="82" rx="12" fill="#1e293b" stroke="#475569"/>
+    <rect x="600" y="10" width="92" height="62" rx="7" fill="#25314f"/>
+    <rect x="614" y="47" width="65" height="10" rx="5" fill="#38bdf8"/>
+    <rect x="147" y="0" width="112" height="82" rx="12" fill="#1e293b" stroke="#475569"/>
+    <rect x="157" y="10" width="92" height="62" rx="7" fill="#25314f"/>
+    <rect x="171" y="47" width="65" height="10" rx="5" fill="#38bdf8"/>
+    <rect x="295" y="0" width="112" height="82" rx="12" fill="#321f4d" stroke="#c084fc" stroke-width="2" filter="url(#glow)"/>
+    <rect x="305" y="10" width="92" height="62" rx="7" fill="#40265d"/>
+    <rect x="319" y="34" width="65" height="10" rx="5" fill="#fb7185"/>
+    <path d="M374 16l17 17M391 16l-17 17" stroke="#fda4af" stroke-width="3"/>
+    <rect x="443" y="0" width="112" height="82" rx="12" fill="#1e293b" stroke="#475569"/>
+    <rect x="453" y="10" width="92" height="62" rx="7" fill="#25314f"/>
+    <rect x="467" y="47" width="65" height="10" rx="5" fill="#38bdf8"/>
+    <path d="M0 112h702" stroke="#334155" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="56" cy="112" r="6" fill="#64748b"/>
+    <circle cx="203" cy="112" r="6" fill="#64748b"/>
+    <circle cx="351" cy="112" r="9" fill="#fb7185" filter="url(#glow)"/>
+    <circle cx="499" cy="112" r="6" fill="#64748b"/>
+    <circle cx="646" cy="112" r="6" fill="#64748b"/>
+  </g>
+  <text x="72" y="286" font-family="Segoe UI, Arial, sans-serif" font-size="50" font-weight="700" fill="#f8fafc">ClipQA</text>
+  <text x="252" y="286" font-family="Segoe UI, Arial, sans-serif" font-size="50" font-weight="700" fill="url(#accent)">MCP</text>
+  <text x="72" y="320" font-family="Segoe UI, Arial, sans-serif" font-size="18" fill="#94a3b8" letter-spacing="1.2">RECORD  ·  REWIND  ·  INSPECT  ·  VERIFY</text>
+</svg>
