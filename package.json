@@ -1,6 +1,6 @@
 {
   "name": "clipqa-mcp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Background window recording and frame-level QA evidence for AI agents via MCP.",
   "type": "module",
   "bin": {
@@ -23,6 +23,7 @@
     "test:watch": "vitest",
     "benchmark": "tsx benchmarks/temporal-coverage.ts",
     "start": "node build/index.js",
+    "prepare": "npm run build",
     "prepack": "npm run build && npm test"
   },
   "keywords": [

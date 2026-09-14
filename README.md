@@ -47,16 +47,16 @@ An FFmpeg binary is installed through the package dependency. Advanced users can
 
 ## Install and run
 
-Run directly with npm:
+Run the current GitHub release directly with npm:
 
 ```powershell
-npx -y clipqa-mcp
+npx -y github:WheresRace/clipqa-mcp
 ```
 
 Or install globally:
 
 ```powershell
-npm install --global clipqa-mcp
+npm install --global github:WheresRace/clipqa-mcp
 clipqa-mcp
 ```
 
@@ -67,7 +67,7 @@ clipqa-mcp
   "mcpServers": {
     "clipqa": {
       "command": "npx",
-      "args": ["-y", "clipqa-mcp"]
+      "args": ["-y", "github:WheresRace/clipqa-mcp"]
     }
   }
 }
