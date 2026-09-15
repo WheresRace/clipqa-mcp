@@ -12,7 +12,7 @@
 
 ## Windows
 
-Run `npx -y github:WheresRace/clipqa-mcp --setup-wgc` for optional installation. This downloads a release essentials archive from [Gyan's builds](https://www.gyan.dev/ffmpeg/builds/), a provider linked on the [FFmpeg download page](https://www.ffmpeg.org/download.html). It verifies the published SHA-256 and installs executables and accompanying notices into `~/.clipqa/bin`, without administrator rights or PATH changes.
+Run `npx -y clipqa-mcp --setup-wgc` for optional installation. This downloads a release essentials archive from [Gyan's builds](https://www.gyan.dev/ffmpeg/builds/), a provider linked on the [FFmpeg download page](https://www.ffmpeg.org/download.html). It verifies the published SHA-256 and installs executables and accompanying notices into `~/.clipqa/bin`, without administrator rights or PATH changes.
 
 Environment overrides `CLIPQA_FFMPEG_PATH` and `CLIPQA_FFPROBE_PATH` take precedence over managed binaries and package dependencies. Restart the MCP client after setup.
 

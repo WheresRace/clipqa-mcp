@@ -32,7 +32,7 @@ export async function createServer(config: ClipQaConfig): Promise<McpServer> {
   await store.recoverInterrupted();
   const recorder = new Recorder(store, config.ffmpegPath, runner, config.ffprobePath);
   const media = new MediaProcessor(config.ffmpegPath, config.ffprobePath, runner);
-  const server = new McpServer({ name: "clipqa-mcp", version: "0.2.0" });
+  const server = new McpServer({ name: "clipqa-mcp", version: "0.2.1" });
   const close = server.close.bind(server);
   server.close = async () => { await recorder.shutdown(); await close(); };
   server.server.onclose = () => { void recorder.shutdown(); };

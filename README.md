@@ -13,7 +13,7 @@ ClipQA runs locally through MCP. It never moves your mouse, types, or activates 
 ## Quick start
 
 ```sh
-npx -y github:WheresRace/clipqa-mcp
+npx -y clipqa-mcp
 ```
 
 MCP client configuration:
@@ -23,7 +23,7 @@ MCP client configuration:
   "mcpServers": {
     "clipqa": {
       "command": "npx",
-      "args": ["-y", "github:WheresRace/clipqa-mcp"]
+      "args": ["-y", "clipqa-mcp"]
     }
   }
 }
@@ -36,7 +36,7 @@ Node.js 20+ is required. FFmpeg and FFprobe are supplied through package depende
 The bundled FFmpeg may not include Windows Graphics Capture. This optional setup downloads a newer build from the Windows build provider linked by FFmpeg, verifies its published SHA-256, and installs it into `~/.clipqa/bin`:
 
 ```powershell
-npx -y github:WheresRace/clipqa-mcp --setup-wgc
+npx -y clipqa-mcp --setup-wgc
 ```
 
 Restart your MCP client and call `capture_status`. Automatic selection prefers `gfxcapture` when available, falling back to `gdigrab`. An explicitly requested unavailable backend returns an error. Capture never silently switches from a window to an entire display.
@@ -143,7 +143,7 @@ The original synthetic timestamp benchmark covers 8/8 defect intervals versus 2/
 - Sampling can miss changes between frames or below analysis resolution. Comparisons require aligned runs. Internal failures still need logs and reproducible test steps.
 - Recording, analysis, disk writes and finalization consume resources. Zero slowdown is not guaranteed. Full recordings and saved previews grow until cleanup.
 - Forced termination may leave segments without a finalized MP4. Use orderly shutdown; preserve interrupted sessions if you want to recover their evidence.
-- Distribution is through GitHub. npm registry publication remains separate from this release.
+- Releases are published to npm and GitHub. Direct GitHub installs remain available for testing unreleased commits.
 
 The Roblox Studio plugin is deferred. Core recording, progress, comparison and event tools work independently of any game engine.
 

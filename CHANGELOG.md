@@ -2,6 +2,11 @@
 
 All notable changes will be documented here.
 
+## 0.2.1 - 2026-09-15
+
+- Publish the public package to the npm registry and use `npx clipqa-mcp` as the primary installation route.
+- Protect the GitHub `main` branch from force pushes and deletion.
+
 ## 0.2.0 - 2026-09-15
 
 - Add Windows Graphics Capture with capability checks and optional verified FFmpeg setup.
