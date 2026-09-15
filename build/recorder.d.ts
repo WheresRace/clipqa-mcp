@@ -1,6 +1,7 @@
 import type { CommandRunner } from "./process-runner.js";
 import type { CaptureTarget, RecordingSession } from "./types.js";
 import { SessionStore } from "./session-store.js";
+import { type Backend } from "./backends.js";
 export type EncoderChoice = "auto" | "libx264" | "h264_nvenc" | "h264_qsv" | "h264_amf";
 export interface StartRecordingOptions {
     target: CaptureTarget;
@@ -8,6 +9,9 @@ export interface StartRecordingOptions {
     maxSeconds: number;
     drawMouse: boolean;
     encoder: EncoderChoice;
+    backend?: Backend | "auto";
+    bufferSeconds?: number;
+    maxWidth?: number;
 }
 export declare function buildCaptureArgs(target: CaptureTarget, outputPath: string, options: Omit<StartRecordingOptions, "target" | "encoder"> & {
     encoder: string;
@@ -17,11 +21,22 @@ export declare class Recorder {
     private readonly store;
     private readonly ffmpegPath;
     private readonly runner;
+    private readonly ffprobePath;
     private readonly active;
     private readonly errors;
-    constructor(store: SessionStore, ffmpegPath: string, runner: CommandRunner);
+    private readonly finished;
+    private starting;
+    private readonly fileQueues;
+    private withFiles;
+    constructor(store: SessionStore, ffmpegPath: string, runner: CommandRunner, ffprobePath?: string);
     start(options: StartRecordingOptions): Promise<RecordingSession>;
     stop(id: string): Promise<RecordingSession>;
+    shutdown(): Promise<void>;
+    preview(id: string, seconds: number): Promise<{
+        videoPath: string;
+        offset: number;
+        duration: number;
+    } | undefined>;
     private markFailed;
 }
 //# sourceMappingURL=recorder.d.ts.map

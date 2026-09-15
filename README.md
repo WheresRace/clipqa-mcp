@@ -1,59 +1,22 @@
 <div align="center">
-  <img src="docs/assets/banner.svg" alt="ClipQA MCP — frame-level evidence for AI QA" width="900" />
-
-  <p><strong>Frame-level evidence for AI-assisted QA</strong></p>
-
-  <p>
-    <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-7c3aed" /></a>
-    <img alt="Node 20+" src="https://img.shields.io/badge/node-20%2B-22c55e" />
-    <img alt="Platform: Windows" src="https://img.shields.io/badge/platform-Windows-2563eb" />
-  </p>
+  <img src="docs/assets/banner.png" alt="ClipQA" width="900" />
+  <p><strong>Record. Inspect. Compare.</strong></p>
+  <p><a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-7c3aed" /></a> <img alt="Node 20+" src="https://img.shields.io/badge/node-20%2B-22c55e" /></p>
 </div>
 
-Turn short screen recordings into precise, frame-level evidence for AI-assisted QA.
+**Video evidence for AI-assisted testing of desktop apps, websites, creative tools, and games.** Record a selected source, see screenshots while tests run, inspect subtle changes, and compare before/after clips with a visual report.
 
-ClipQA MCP records one Windows application window in a hidden background process, synchronizes test events, and lets an AI inspect a lightweight contact sheet before requesting exact frames around a suspicious moment. It is designed for motion and timing defects that periodic screenshots commonly miss: UI flicker, placement jumps, animation stalls, collision glitches, and delayed state changes.
+ClipQA runs locally through MCP. It never moves your mouse, types, or activates application windows. Saved videos are available for you to watch, not just for an AI to analyze.
 
-> **Status:** Windows-first public MVP. Recording uses FFmpeg's `gdigrab` window capture. Keep the target window unminimized during a test for dependable results.
+> **v0.2 public preview.** Windows Graphics Capture has been tested live on Windows. Linux X11 and macOS display backends have argument/parsing tests; native capture on those systems still needs validation. See [platform setup](docs/CAPTURE.md).
 
-## Why ClipQA
+## Quick start
 
-Four screenshots from a 30-second test can miss a defect that lasts 100 milliseconds. Sending all 900 frames from a 30 FPS recording is expensive and repetitive. ClipQA keeps the complete local recording, returns an overview, and exposes exact timestamps for focused inspection.
-
-```text
-test action → selected-window recording → timestamped overview
-                                      ↘ exact frames around a failure
-Roblox logs/events ────────────────────↗
-```
-
-## Privacy and interruption model
-
-- Captures only the selected window title or HWND.
-- Runs FFmpeg with a hidden process window.
-- Does not move the mouse, type, focus windows, or automate the computer.
-- Does not capture audio or the webcam.
-- Does not upload recordings or open a network port.
-- Stores sessions locally in `~/.clipqa/sessions` by default.
-- Hides the mouse pointer by default.
-
-The selected app should remain unminimized. It may sit behind other windows. Capture behavior for minimized or hardware-protected windows is not guaranteed by the MVP backend.
-
-## Requirements
-
-- Windows 10 or Windows 11
-- Node.js 20 or later
-
-An FFmpeg binary is installed through the package dependency. Advanced users can override it with `CLIPQA_FFMPEG_PATH` and `CLIPQA_FFPROBE_PATH`.
-
-## Install and run
-
-Run the current GitHub release directly with npm:
-
-```powershell
+```sh
 npx -y github:WheresRace/clipqa-mcp
 ```
 
-### MCP client configuration
+MCP client configuration:
 
 ```json
 {
@@ -66,71 +29,102 @@ npx -y github:WheresRace/clipqa-mcp
 }
 ```
 
-For local development:
+Node.js 20+ is required. FFmpeg and FFprobe are supplied through package dependencies. Override their locations with `CLIPQA_FFMPEG_PATH` and `CLIPQA_FFPROBE_PATH`. Change the session directory with `CLIPQA_DATA_DIR` (default `~/.clipqa/sessions`).
 
-```json
-{
-  "mcpServers": {
-    "clipqa": {
-      "command": "node",
-      "args": ["C:/path/to/clipqa-mcp/build/index.js"],
-      "env": {
-        "CLIPQA_DATA_DIR": "C:/path/to/qa-recordings"
-      }
-    }
-  }
-}
+### Stronger Windows capture
+
+The bundled FFmpeg may not include Windows Graphics Capture. This optional setup downloads a newer build from the Windows build provider linked by FFmpeg, verifies its published SHA-256, and installs it into `~/.clipqa/bin`:
+
+```powershell
+npx -y github:WheresRace/clipqa-mcp --setup-wgc
 ```
 
-## Available tools
+Restart your MCP client and call `capture_status`. Automatic selection prefers `gfxcapture` when available, falling back to `gdigrab`. An explicitly requested unavailable backend returns an error. Capture never silently switches from a window to an entire display.
+
+## See what is happening
+
+Ask your assistant:
+
+> Record this app at 15 FPS, keeping the last 30 seconds. Show me a progress screenshot. Include a short video preview when something changes. Stop and show me the saved video when the test finishes.
+
+- `recording_progress` returns a screenshot as an MCP image. With `includeVideo: true`, it also returns a short MP4 preview and its local path. Recording continues.
+- Live previews use completed segments and lag by roughly two seconds. Early requests return `previewReady: false`.
+- `get_clip` returns the completed video's absolute path and a video resource link.
+- Inline video playback depends on your MCP client. A client with local-media support can render the path in chat; otherwise open it in a media player. Images use standard MCP image responses.
+
+Saved videos, previews, screenshots, and reports stay on disk until explicitly deleted. ClipQA does **not** automatically erase evidence once an AI inspects it.
+
+## Tools
 
 | Tool | Purpose |
 | --- | --- |
-| `list_windows` | List visible windows, exact titles, and HWND values. |
-| `start_recording` | Record one window quietly at 1–60 FPS. |
-| `mark_event` | Attach a timestamped action, assertion, error, or note. |
-| `stop_recording` | Stop FFmpeg gracefully and finalize the MP4. |
-| `list_sessions` | List local test sessions and their state. |
-| `inspect_clip` | Return a timestamped contact sheet from a time range. |
-| `get_frames` | Return full-size images at up to 16 exact timestamps. |
+| `capture_status` | Detect capture backends and explain requirements. |
+| `list_sources` | List Windows/X11 windows or macOS displays. |
+| `list_windows` | List Windows/X11 titles and native handles. |
+| `start_recording` | Record a source, optionally retaining the last N seconds. |
+| `recording_progress` | Return status, a screenshot, and optionally a live video preview. |
+| `mark_event` | Attach actions, assertions, errors, or application logs to timestamps. |
+| `stop_recording` | Stop capture and finalize the saved video. |
+| `get_clip` | Access a completed session's video. |
+| `list_sessions` | Browse recordings. |
+| `import_clip` | Copy an existing local video into a session on any platform. |
+| `inspect_clip` | Return a contact sheet, perceptual-change index and quality warnings. |
+| `get_frames` | Retrieve specific frames with configurable image size. |
+| `compare_clips` | Generate paired frames, difference maps, and HTML/JSON reports. |
+| `delete_session` | Delete a stopped session and all its artifacts. |
+| `cleanup_sessions` | Preview or delete old sessions; defaults to a dry run. |
 
-Suggested agent workflow:
+### Rolling recording
 
-1. Call `list_windows` and identify Roblox or Roblox Studio.
-2. Call `start_recording` using the exact title or HWND. The bundled FFmpeg resolves HWND values to the current title for compatibility.
-3. Mark important inputs and assertions with `mark_event`.
-4. Stop the recording after the test.
-5. Call `inspect_clip` for a coarse overview.
-6. Call `get_frames` around suspicious timestamps.
-7. Correlate the visual symptom with Roblox client/server logs before changing code.
-
-## Measuring effectiveness
-
-The included benchmark compares four periodic screenshots per run with overview sampling augmented by timestamped events and detected visual changes:
-
-```powershell
-npm run benchmark
+```json
+{
+  "hwnd": "123456",
+  "backend": "auto",
+  "fps": 15,
+  "maxWidth": 1280,
+  "maxSeconds": 300,
+  "bufferSeconds": 30
+}
 ```
 
-The benchmark reports **temporal evidence coverage**: whether at least one selected frame falls inside each labeled defect interval. This isolates the MCP's evidence-selection value. It does not claim to measure an AI model's final diagnosis accuracy.
+Replace the handle with one from `list_sources`. Without `bufferSeconds`, the full recording is retained. Rolling mode removes old two-second disk segments while recording. A few extra seconds are temporarily retained for segment boundaries. Stopping saves only the last N seconds (or the available duration if shorter), removes working segments, drops older events, and shifts retained event timestamps to match the saved video.
 
-Scenarios include:
+This is a **disk buffer**, bounded by time rather than bytes. Preview exports and finalization need extra space. Saved previews remain until cleanup.
 
-- A brief purchase-button flicker.
-- A placement preview teleport.
-- A dialog that closes late.
-- A stuck loading overlay.
-- A misplaced tooltip flash.
-- A collision teleport.
-- A late purchase-state update.
-- An animation freeze without an input event.
-- A clean control run.
+### Perceptual indexing and comparison
 
-For a real Roblox evaluation, record a fixed suite of seeded bugs, keep the expected defect and timestamp hidden from the model, and score detection, localization, diagnosis, and false positives separately. See [the evaluation protocol](docs/EVALUATION.md).
+`inspect_clip` analyzes resized RGB frames using local structural similarity and color differences. Local scoring can find a small button flash that scene-cut detection misses. `indexFps` defaults to 15 and can be raised to 60. Analysis streams frames with bounded candidate storage and caches results. Contact sheets are capped at 24 images; exact-frame requests at 16.
 
-## Development
+`compare_clips` accepts two session IDs, start offsets, duration, sample count, and threshold. `ignoreRegions` uses normalized coordinates (0–1) to exclude expected changes. Reports include paired frames, difference maps, scores and timestamps. The highest-scoring pair is returned as an image in chat. Comparison uses a common 320×180 analysis canvas; inspect larger frames for very small details.
 
-```powershell
+```json
+{
+  "beforeSessionId": "<baseline-session-uuid>",
+  "afterSessionId": "<new-session-uuid>",
+  "beforeStart": 0,
+  "afterStart": 0.5,
+  "seconds": 10,
+  "samples": 30,
+  "threshold": 0.08,
+  "ignoreRegions": [{"x": 0.9, "y": 0, "width": 0.1, "height": 0.1}]
+}
+```
+
+Offsets align runs manually. Reports identify **visual differences**, which can be intentional; they do not automatically establish a regression.
+
+## Privacy and resources
+
+- Windows/X11 capture targets one window. macOS captures an explicitly selected **display**, including other visible apps.
+- Recorder processes are hidden and do not control input or focus.
+- Recording excludes audio and webcams. Imported files are copied as supplied and may contain audio from their original recorder.
+- ClipQA opens no network listener and does not upload recordings itself. Images returned over MCP go to your client, which may send them to its AI provider.
+- One recording runs per MCP process. Configure FPS and `maxWidth` to manage overhead. Automatic encoder selection probes hardware first.
+- Startup waits for actual frames. Wall-clock limits stop stalled capture. Normal shutdown finalizes recordings; concurrent event updates are serialized.
+- Cleanup defaults to a preview and excludes active sessions.
+
+## Validation
+
+```sh
 npm install
 npm run check
 npm test
@@ -138,24 +132,21 @@ npm run benchmark
 npm run build
 ```
 
-## Current limitations
+Tests use real FFmpeg video for rolling retention, subtle changes, clean controls, ignore masks and reports. A real MCP client exercises import → annotation → inspection → comparison → progress → cleanup. The opt-in Windows test creates its own animated window without activation and verifies WGC, rolling output and live previews. See [test instructions](docs/TESTING.md).
 
-- The capture backend is Windows-only.
-- The package is released through GitHub; npm registry publication is planned after wider testing.
-- A minimized target may stop producing useful frames.
-- Scene-change detection is intentionally simple and may miss subtle motion or over-select busy scenes.
-- Video shows symptoms. Logs, application state, and deterministic reproduction steps are still needed to identify many root causes.
-- Recording overhead is small but not zero; benchmark the chosen FPS and encoder on the test machine.
+The original synthetic timestamp benchmark covers 8/8 defect intervals versus 2/8 with four periodic screenshots, using 144 versus 36 selected frames. That is **temporal evidence coverage**, not AI diagnosis accuracy, with unequal image budgets. Real-video tests separately verify the new analysis code. See [the evaluation protocol](docs/EVALUATION.md) for model evaluations.
 
-## Roadmap
+## Remaining constraints
 
-- Windows Graphics Capture backend for stronger game-window capture.
-- Rolling memory/disk buffer that saves only the last N seconds.
-- Perceptual-difference indexing for subtle changes beyond the current scene-change detector.
-- Roblox Studio plugin for synchronized client/server logs and custom QA events.
-- Before/after comparison and regression reports.
-- macOS and Linux capture backends.
+- Minimized apps may stop rendering; minimized Windows targets are rejected at startup. ClipQA does not restore or focus them. Protected content can remain black. Static/black-frame warnings flag suspicious evidence, not confirmed bugs.
+- WGC needs a suitable OS, driver and FFmpeg build. X11 can include occluding windows and stops when a target is unmapped. Native Wayland and macOS window-only capture are not implemented.
+- Sampling can miss changes between frames or below analysis resolution. Comparisons require aligned runs. Internal failures still need logs and reproducible test steps.
+- Recording, analysis, disk writes and finalization consume resources. Zero slowdown is not guaranteed. Full recordings and saved previews grow until cleanup.
+- Forced termination may leave segments without a finalized MP4. Use orderly shutdown; preserve interrupted sessions if you want to recover their evidence.
+- Distribution is through GitHub. npm registry publication remains separate from this release.
+
+The Roblox Studio plugin is deferred. Core recording, progress, comparison and event tools work independently of any game engine.
 
 ## License
 
-MIT. FFmpeg binaries are distributed under their own license; see the `ffmpeg-static` package and FFmpeg build information for details.
+MIT. FFmpeg binaries have separate licenses; consult the selected distributor or package's license and source information.

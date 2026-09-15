@@ -3,6 +3,7 @@ import path from "node:path";
 import type { RecordingSession } from "./types.js";
 
 export class SessionStore {
+  private readonly updates = new Map<string, Promise<unknown>>();
   constructor(readonly rootDir: string) {}
 
   sessionDir(id: string): string {
@@ -39,9 +40,14 @@ export class SessionStore {
     id: string,
     change: (session: RecordingSession) => RecordingSession,
   ): Promise<RecordingSession> {
-    const next = change(await this.read(id));
-    await this.write(next);
-    return next;
+    const pending = (this.updates.get(id) ?? Promise.resolve()).catch(() => undefined).then(async () => {
+      const next = change(await this.read(id));
+      await this.write(next);
+      return next;
+    });
+    this.updates.set(id, pending);
+    try { return await pending; }
+    finally { if (this.updates.get(id) === pending) this.updates.delete(id); }
   }
 
   async list(): Promise<RecordingSession[]> {
@@ -68,6 +74,10 @@ export class SessionStore {
     let recovered = 0;
     for (const session of sessions) {
       if (session.state === "recording") {
+        if (session.ownerPid) {
+          try { process.kill(session.ownerPid, 0); continue; }
+          catch (error) { if ((error as NodeJS.ErrnoException).code === "EPERM") continue; }
+        }
         await this.write({
           ...session,
           state: "interrupted",

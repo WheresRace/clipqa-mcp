@@ -4,7 +4,7 @@ ClipQA should be judged on whether recording and selective frame retrieval impro
 
 ## Dataset
 
-Create at least 30 reproducible Roblox test runs:
+Create at least 30 reproducible test runs across desktop applications, browser interfaces, and games:
 
 - 10 short visual defects lasting under 250 ms.
 - 8 timing defects lasting 250 ms to 2 seconds.
@@ -21,7 +21,9 @@ Compare these conditions:
 2. Twelve periodic screenshots.
 3. ClipQA contact sheet only.
 4. ClipQA contact sheet plus exact-frame retrieval.
-5. ClipQA evidence plus timestamped Roblox logs and events.
+5. ClipQA evidence plus timestamped application logs and events.
+
+Include equal-image-budget comparisons and before/after regression tasks. Align baseline and changed runs by matching test events; report alignment errors separately from visual differences.
 
 Use the same model, system prompt, reasoning setting, and token budget for all conditions.
 

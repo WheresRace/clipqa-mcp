@@ -4,8 +4,9 @@ export declare class MediaProcessor {
     private readonly ffprobePath;
     private readonly runner;
     constructor(ffmpegPath: string, ffprobePath: string, runner: CommandRunner);
+    frameRate(videoPath: string): Promise<number>;
     duration(videoPath: string): Promise<number>;
-    extractFrame(videoPath: string, timestamp: number, outputPath: string): Promise<void>;
+    extractFrame(videoPath: string, timestamp: number, outputPath: string, maxWidth?: number): Promise<void>;
     detectVisualChanges(videoPath: string, threshold?: number, maxChanges?: number): Promise<number[]>;
     createContactSheet(videoPath: string, outputPath: string, timestamps: number[]): Promise<number[]>;
 }

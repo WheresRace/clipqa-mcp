@@ -50,6 +50,10 @@ describe("hitsInterval", () => {
 });
 
 describe("chooseBoundedInspectionTimestamps", () => {
+  it("does not spend the entire budget on changes early in the clip", () => {
+    const times = chooseBoundedInspectionTimestamps({ startSeconds: 0, endSeconds: 100, visualChangeTimesSeconds: Array.from({ length: 99 }, (_, i) => i + 1) }, 10);
+    expect(times.filter(t => t > 50).length).toBeGreaterThan(3);
+  });
   it("never exceeds the frame budget and retains signal timestamps", () => {
     const timestamps = chooseBoundedInspectionTimestamps(
       {

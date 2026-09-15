@@ -11,10 +11,17 @@ export class MediaProcessor {
         this.ffprobePath = ffprobePath;
         this.runner = runner;
     }
+    async frameRate(videoPath) {
+        const result = await this.runner.run(this.ffprobePath, ["-v", "error", "-protocol_whitelist", "file,pipe", "-select_streams", "v:0", "-show_entries", "stream=avg_frame_rate", "-of", "default=noprint_wrappers=1:nokey=1", videoPath]);
+        const [n, d] = result.stdout.trim().split("/").map(Number);
+        const rate = n / (d ?? 1);
+        return Number.isFinite(rate) && rate > 0 ? rate : 30;
+    }
     async duration(videoPath) {
         const result = await this.runner.run(this.ffprobePath, [
             "-v",
             "error",
+            "-protocol_whitelist", "file,pipe",
             "-show_entries",
             "format=duration",
             "-of",
@@ -28,8 +35,10 @@ export class MediaProcessor {
             throw new Error("FFprobe returned an invalid duration.");
         return duration;
     }
-    async extractFrame(videoPath, timestamp, outputPath) {
+    async extractFrame(videoPath, timestamp, outputPath, maxWidth = 1280) {
         await fs.mkdir(path.dirname(outputPath), { recursive: true });
+        await fs.unlink(outputPath).catch(error => { if (error.code !== "ENOENT")
+            throw error; });
         const result = await this.runner.run(this.ffmpegPath, [
             "-hide_banner",
             "-loglevel",
@@ -37,18 +46,22 @@ export class MediaProcessor {
             "-y",
             "-ss",
             timestamp.toFixed(3),
+            "-protocol_whitelist", "file,pipe",
             "-i",
             videoPath,
             "-frames:v",
             "1",
             "-vf",
-            "scale='min(1280,iw)':-2",
+            `scale='min(${maxWidth},iw)':-2`,
+            ...(/\.jpe?g$/i.test(outputPath) ? ["-pix_fmt", "yuvj420p"] : []),
             "-q:v",
             "2",
             outputPath,
         ]);
         if (result.code !== 0)
             throw new Error(`Unable to extract frame: ${conciseError(result.stderr)}`);
+        if (!(await fs.stat(outputPath).catch(() => undefined))?.size)
+            throw new Error("No frame at this timestamp. Request a time strictly before the clip duration.");
     }
     async detectVisualChanges(videoPath, threshold = 0.25, maxChanges = 8) {
         if (threshold <= 0 || threshold >= 1)
@@ -59,6 +72,7 @@ export class MediaProcessor {
             "-hide_banner",
             "-loglevel",
             "info",
+            "-protocol_whitelist", "file,pipe",
             "-i",
             videoPath,
             "-an",

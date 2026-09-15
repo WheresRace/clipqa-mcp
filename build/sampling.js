@@ -34,7 +34,9 @@ export function chooseBoundedInspectionTimestamps(signals, maxSamples) {
     const anchors = [...new Set([...eventTimesSeconds, ...visualChangeTimesSeconds])]
         .filter((time) => time >= startSeconds && time <= endSeconds)
         .sort((a, b) => a - b);
-    for (const time of anchors)
+    const slots = maxSamples - result.size;
+    const selected = anchors.length > slots ? evenlySpaced(0, anchors.length - 1, slots).map(i => anchors[Math.round(i)]) : anchors;
+    for (const time of selected)
         add(time);
     for (const time of anchors) {
         add(time - neighborhoodSeconds);

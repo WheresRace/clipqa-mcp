@@ -35,6 +35,15 @@ function sampleSession(id = "11111111-1111-4111-8111-111111111111"): RecordingSe
 }
 
 describe("SessionStore", () => {
+  it("preserves concurrent event updates", async () => {
+    const store = await makeStore(); const session = sampleSession(); await store.create(session);
+    await Promise.all(Array.from({ length: 30 }, (_, i) => store.update(session.id, s => ({ ...s, events: [...s.events, { timestampMs: i, label: String(i), kind: "note" }] }))));
+    expect((await store.read(session.id)).events).toHaveLength(30);
+  });
+  it("does not interrupt a session owned by a live MCP process", async () => {
+    const store = await makeStore(); await store.create({ ...sampleSession(), ownerPid: process.pid });
+    expect(await store.recoverInterrupted()).toBe(0);
+  });
   it("round-trips and updates a session", async () => {
     const store = await makeStore();
     const session = sampleSession();

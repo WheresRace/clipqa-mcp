@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 export class SessionStore {
     rootDir;
+    updates = new Map();
     constructor(rootDir) {
         this.rootDir = rootDir;
     }
@@ -31,9 +32,19 @@ export class SessionStore {
         await fs.rename(temporary, target);
     }
     async update(id, change) {
-        const next = change(await this.read(id));
-        await this.write(next);
-        return next;
+        const pending = (this.updates.get(id) ?? Promise.resolve()).catch(() => undefined).then(async () => {
+            const next = change(await this.read(id));
+            await this.write(next);
+            return next;
+        });
+        this.updates.set(id, pending);
+        try {
+            return await pending;
+        }
+        finally {
+            if (this.updates.get(id) === pending)
+                this.updates.delete(id);
+        }
     }
     async list() {
         await this.initialize();
@@ -57,6 +68,16 @@ export class SessionStore {
         let recovered = 0;
         for (const session of sessions) {
             if (session.state === "recording") {
+                if (session.ownerPid) {
+                    try {
+                        process.kill(session.ownerPid, 0);
+                        continue;
+                    }
+                    catch (error) {
+                        if (error.code === "EPERM")
+                            continue;
+                    }
+                }
                 await this.write({
                     ...session,
                     state: "interrupted",

@@ -1,6 +1,7 @@
 import type { RecordingSession } from "./types.js";
 export declare class SessionStore {
     readonly rootDir: string;
+    private readonly updates;
     constructor(rootDir: string);
     sessionDir(id: string): string;
     manifestPath(id: string): string;

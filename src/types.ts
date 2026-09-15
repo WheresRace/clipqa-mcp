@@ -3,6 +3,9 @@ export type SessionState = "recording" | "stopped" | "failed" | "interrupted";
 export interface CaptureTarget {
   title?: string;
   hwnd?: string;
+  windowId?: string;
+  display?: string;
+  screenIndex?: number;
 }
 
 export interface QaEvent {
@@ -25,6 +28,11 @@ export interface RecordingSession {
   videoPath: string;
   events: QaEvent[];
   error?: string;
+  backend?: string;
+  bufferSeconds?: number;
+  timelineOffsetSeconds?: number;
+  warnings?: string[];
+  ownerPid?: number;
 }
 
 export interface WindowInfo {
@@ -32,6 +40,7 @@ export interface WindowInfo {
   hwnd: string;
   process: string;
   pid: number;
+  minimized?: boolean;
 }
 
 export interface ProcessResult {

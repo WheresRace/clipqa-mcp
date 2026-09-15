@@ -11,10 +11,18 @@ export class MediaProcessor {
     private readonly runner: CommandRunner,
   ) {}
 
+  async frameRate(videoPath: string): Promise<number> {
+    const result = await this.runner.run(this.ffprobePath, ["-v", "error", "-protocol_whitelist", "file,pipe", "-select_streams", "v:0", "-show_entries", "stream=avg_frame_rate", "-of", "default=noprint_wrappers=1:nokey=1", videoPath]);
+    const [n, d] = result.stdout.trim().split("/").map(Number);
+    const rate = n! / (d ?? 1);
+    return Number.isFinite(rate) && rate > 0 ? rate : 30;
+  }
+
   async duration(videoPath: string): Promise<number> {
     const result = await this.runner.run(this.ffprobePath, [
       "-v",
       "error",
+      "-protocol_whitelist", "file,pipe",
       "-show_entries",
       "format=duration",
       "-of",
@@ -27,8 +35,9 @@ export class MediaProcessor {
     return duration;
   }
 
-  async extractFrame(videoPath: string, timestamp: number, outputPath: string): Promise<void> {
+  async extractFrame(videoPath: string, timestamp: number, outputPath: string, maxWidth = 1280): Promise<void> {
     await fs.mkdir(path.dirname(outputPath), { recursive: true });
+    await fs.unlink(outputPath).catch(error => { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; });
     const result = await this.runner.run(this.ffmpegPath, [
       "-hide_banner",
       "-loglevel",
@@ -36,17 +45,20 @@ export class MediaProcessor {
       "-y",
       "-ss",
       timestamp.toFixed(3),
+      "-protocol_whitelist", "file,pipe",
       "-i",
       videoPath,
       "-frames:v",
       "1",
       "-vf",
-      "scale='min(1280,iw)':-2",
+      `scale='min(${maxWidth},iw)':-2`,
+      ...(/\.jpe?g$/i.test(outputPath) ? ["-pix_fmt", "yuvj420p"] : []),
       "-q:v",
       "2",
       outputPath,
     ]);
     if (result.code !== 0) throw new Error(`Unable to extract frame: ${conciseError(result.stderr)}`);
+    if (!(await fs.stat(outputPath).catch(() => undefined))?.size) throw new Error("No frame at this timestamp. Request a time strictly before the clip duration.");
   }
 
   async detectVisualChanges(
@@ -60,6 +72,7 @@ export class MediaProcessor {
       "-hide_banner",
       "-loglevel",
       "info",
+      "-protocol_whitelist", "file,pipe",
       "-i",
       videoPath,
       "-an",

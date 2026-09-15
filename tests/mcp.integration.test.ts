@@ -27,11 +27,19 @@ describe("MCP integration", () => {
     try {
       const { tools } = await client.listTools();
       expect(tools.map((tool) => tool.name).sort()).toEqual([
+        "capture_status",
+        "cleanup_sessions",
+        "compare_clips",
+        "delete_session",
+        "get_clip",
         "get_frames",
+        "import_clip",
         "inspect_clip",
         "list_sessions",
+        "list_sources",
         "list_windows",
         "mark_event",
+        "recording_progress",
         "start_recording",
         "stop_recording",
       ]);
