@@ -1,9 +1,11 @@
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { createHash } from "node:crypto";
 import type { CommandRunner } from "./process-runner.js";
 import type { WindowInfo } from "./types.js";
 
-const WINDOWS_SCRIPT = `
-[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false
-Add-Type -TypeDefinition @'
+const WINDOWS_SOURCE = `
 using System;
 using System.Text;
 using System.Collections.Generic;
@@ -30,9 +32,36 @@ public static class ClipWindows {
   return result;
  }
 }
-'@
-@([ClipWindows]::All()) | Sort-Object title | ConvertTo-Json -Compress
 `;
+
+const LIST = "@([ClipWindows]::All()) | Sort-Object title | ConvertTo-Json -Compress";
+const ENCODING = "[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false";
+const WINDOWS_SCRIPT = `${ENCODING}
+Add-Type -TypeDefinition @'
+${WINDOWS_SOURCE}
+'@
+${LIST}`;
+
+let helper: Promise<string | undefined> | undefined;
+
+// Compiling the helper once saves the C# compile on every listing (about a third of the call).
+function compiledHelper(runner: CommandRunner): Promise<string | undefined> {
+  helper ??= (async () => {
+    const hash = createHash("sha256").update(WINDOWS_SOURCE).digest("hex").slice(0, 12);
+    const dll = path.join(os.tmpdir(), `clipqa-windows-${hash}.dll`);
+    if (await fs.stat(dll).then(s => s.size > 0, () => false)) return dll;
+    const source = path.join(os.tmpdir(), `clipqa-windows-${hash}-${process.pid}.cs`), temporary = path.join(os.tmpdir(), `clipqa-windows-${hash}-${process.pid}.dll`);
+    try {
+      await fs.writeFile(source, WINDOWS_SOURCE);
+      const result = await runner.run("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", `Add-Type -Path '${source}' -OutputAssembly '${temporary}' -OutputType Library`]);
+      if (result.code !== 0) return undefined;
+      await fs.rename(temporary, dll).catch(() => undefined);
+      return await fs.stat(dll).then(() => dll, () => undefined);
+    } catch { return undefined; }
+    finally { await fs.rm(source, { force: true }).catch(() => undefined); await fs.rm(temporary, { force: true }).catch(() => undefined); }
+  })();
+  return helper;
+}
 
 export async function listWindows(
   runner: CommandRunner,
@@ -53,7 +82,9 @@ export async function listWindows(
     "-NoProfile",
     "-NonInteractive",
     "-Command",
-    WINDOWS_SCRIPT,
+    await compiledHelper(runner).then(dll => dll ? `${ENCODING}
+Add-Type -Path '${dll}'
+${LIST}` : WINDOWS_SCRIPT, () => WINDOWS_SCRIPT),
   ]);
   if (result.code !== 0) {
     throw new Error(`Unable to list windows: ${result.stderr.trim()}`);

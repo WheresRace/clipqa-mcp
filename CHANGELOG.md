@@ -2,6 +2,20 @@
 
 All notable changes will be documented here.
 
+## 0.3.0 - 2026-10-29
+
+- Add a structured QA review: `qa_review` checklist (body proportions, twisted/broken meshes, pose vs request, fluidity, every-angle coverage, materials), `record_finding` with zoomed evidence, and `qa_report` scoring with PASS / NEEDS WORK / FAIL / INCOMPLETE verdicts.
+- Add `analyze_motion`: fluidity score with hitches, pops and uneven speed.
+- Add 360° inspection: `orbit_plan` (Roblox Luau, Blender Python or generic views, with close-up passes) and `orbit_sheet` (finds each held view from camera cuts).
+- Add `zoom_frame` with a labelled grid and cell/range, point+factor or region targets at native resolution.
+- Add `wait_until_stable`, `attach_log` / `start_recording.logs`, and `recover_session` for interrupted recordings.
+- `compare_clips` now auto-aligns runs by shared events or motion, samples around changes and events, and supports a larger analysis canvas.
+- `start_recording` accepts `windowTitleContains`, `crop` and `request`; `inspect_clip`/`get_frames` accept `region`; contact sheets and reports show event labels.
+- Fix: event timestamps are measured from the first captured frame, not session creation, so live events line up with the video.
+- Faster: batched frame extraction, per-process caching of capture capability and encoder probes, and a precompiled Windows window-list helper.
+- `get_frames` validates all timestamps before extracting; the server version is read from package.json.
+- Stop committing `build/`; GitHub installs build via `prepare`.
+
 ## 0.2.1 - 2026-09-15
 
 - Publish the public package to the npm registry and use `npx clipqa-mcp` as the primary installation route.

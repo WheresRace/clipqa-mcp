@@ -8,6 +8,28 @@ export interface CaptureTarget {
   screenIndex?: number;
 }
 
+export interface Region {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export type FindingStatus = "pass" | "fail" | "unclear";
+export type FindingSeverity = "blocker" | "major" | "minor";
+
+export interface QaFinding {
+  checkpoint: string;
+  status: FindingStatus;
+  severity?: FindingSeverity;
+  note: string;
+  timestampSeconds?: number;
+  view?: string;
+  region?: Region;
+  evidencePath?: string;
+  recordedAt: string;
+}
+
 export interface QaEvent {
   timestampMs: number;
   label: string;
@@ -33,6 +55,9 @@ export interface RecordingSession {
   timelineOffsetSeconds?: number;
   warnings?: string[];
   ownerPid?: number;
+  crop?: Region;
+  request?: string;
+  findings?: QaFinding[];
 }
 
 export interface WindowInfo {
@@ -41,6 +66,7 @@ export interface WindowInfo {
   process: string;
   pid: number;
   minimized?: boolean;
+  windowId?: string;
 }
 
 export interface ProcessResult {

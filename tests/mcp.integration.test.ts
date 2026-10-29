@@ -27,6 +27,8 @@ describe("MCP integration", () => {
     try {
       const { tools } = await client.listTools();
       expect(tools.map((tool) => tool.name).sort()).toEqual([
+        "analyze_motion",
+        "attach_log",
         "capture_status",
         "cleanup_sessions",
         "compare_clips",
@@ -39,9 +41,17 @@ describe("MCP integration", () => {
         "list_sources",
         "list_windows",
         "mark_event",
+        "orbit_plan",
+        "orbit_sheet",
+        "qa_report",
+        "qa_review",
+        "record_finding",
         "recording_progress",
+        "recover_session",
         "start_recording",
         "stop_recording",
+        "wait_until_stable",
+        "zoom_frame",
       ]);
 
       const result = await client.callTool({ name: "list_sessions", arguments: { limit: 5 } });
