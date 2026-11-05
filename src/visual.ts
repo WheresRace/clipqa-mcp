@@ -48,14 +48,13 @@ export async function cached<T>(video: string, name: string, version: string, bu
   return value;
 }
 
-// Streams fixed-size RGB frames from FFmpeg. Fills one frame buffer at a time instead of re-concatenating
-// the whole pending buffer on every chunk, so memory stays flat for long clips.
-export function decodeFrames(ffmpeg: string, video: string, start: number, end: number, fps: number, width: number, height: number, crop: Region | undefined, onFrame: (frame: Buffer, index: number) => void, options: { timeoutMs?: number; pixelFormat?: "rgb24" | "gray" } = {}): Promise<number> {
-  const channels = options.pixelFormat === "gray" ? 1 : 3, bytes = width * height * channels;
+// Streams fixed-size raw frames from an FFmpeg command. Fills one frame buffer at a time instead of
+// re-concatenating the pending buffer on every chunk, so memory stays flat for long clips.
+export function streamRawFrames(ffmpeg: string, args: string[], bytes: number, onFrame: (frame: Buffer, index: number) => void, timeoutMs = 120_000): Promise<number> {
   return new Promise<number>((resolve, reject) => {
-    const child = spawn(ffmpeg, ["-hide_banner", "-loglevel", "error", "-ss", String(start), "-protocol_whitelist", "file,pipe", "-i", video, "-t", String(end - start), "-an", "-vf", `${cropFilter(crop)}fps=${fps},scale=${width}:${height}`, "-pix_fmt", options.pixelFormat ?? "rgb24", "-f", "rawvideo", "pipe:1"], { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(ffmpeg, args, { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
     let frame = Buffer.allocUnsafe(bytes), filled = 0, count = 0, stderr = "", failed = false;
-    const timeout = setTimeout(() => { failed = true; child.kill(); reject(new Error("Visual analysis timed out; inspect a shorter range.")); }, options.timeoutMs ?? 120_000);
+    const timeout = setTimeout(() => { failed = true; child.kill(); reject(new Error("Visual analysis timed out; inspect a shorter range.")); }, timeoutMs);
     child.stderr.on("data", chunk => { stderr = (stderr + String(chunk)).slice(-2000); });
     child.stdout.on("data", (chunk: Buffer) => {
       let offset = 0;
@@ -77,6 +76,12 @@ export function decodeFrames(ffmpeg: string, video: string, start: number, end: 
       resolve(count);
     });
   });
+}
+
+export function decodeFrames(ffmpeg: string, video: string, start: number, end: number, fps: number, width: number, height: number, crop: Region | undefined, onFrame: (frame: Buffer, index: number) => void, options: { timeoutMs?: number; pixelFormat?: "rgb24" | "gray" } = {}): Promise<number> {
+  const channels = options.pixelFormat === "gray" ? 1 : 3;
+  const args = ["-hide_banner", "-loglevel", "error", "-ss", String(start), "-protocol_whitelist", "file,pipe", "-i", video, "-t", String(end - start), "-an", "-vf", `${cropFilter(crop)}fps=${fps},scale=${width}:${height}`, "-pix_fmt", options.pixelFormat ?? "rgb24", "-f", "rawvideo", "pipe:1"];
+  return streamRawFrames(ffmpeg, args, width * height * channels, onFrame, options.timeoutMs);
 }
 
 export interface VisualIndex {
@@ -202,7 +207,7 @@ export function estimateLag(before: number[], after: number[], fps: number, maxL
   return { lagSeconds: Number((best.lag / fps).toFixed(3)), confidence: Number(Math.max(0, best.value).toFixed(3)) };
 }
 
-export async function compareVideos(media: MediaProcessor, before: string, after: string, directory: string, options: { beforeStart: number; afterStart: number; seconds: number; samples: number; threshold: number; ignore: Region[]; offsets?: number[]; analysisWidth?: number; notes?: string[] }) {
+export async function compareVideos(media: MediaProcessor, before: string, after: string, directory: string, options: { beforeStart: number; afterStart: number; seconds: number; samples: number; threshold: number; ignore: Region[]; offsets?: number[]; analysisWidth?: number; notes?: string[]; extraHtml?: string }) {
   const offsets = options.offsets ?? Array.from({ length: options.samples }, (_, i) => i * options.seconds / options.samples);
   if (options.seconds <= 0 || offsets.length < 2 || offsets.length > 60) throw new Error("Compare a positive duration with 2–60 samples.");
   const width = options.analysisWidth ?? 320, height = Math.round(width * 9 / 16);
@@ -232,9 +237,10 @@ export async function compareVideos(media: MediaProcessor, before: string, after
     const [aData, bData] = await Promise.all([fs.readFile(a), fs.readFile(b)]);
     htmlRows.push(`<section><h2>${row.beforeSeconds.toFixed(3)}s → ${row.afterSeconds.toFixed(3)}s · ${row.changed ? "Changed" : "Within threshold"}</h2><p>SSIM ${metrics.ssim.toFixed(4)} · changed pixels ${(metrics.changedFraction * 100).toFixed(2)}%${note ? ` · <span class="event">${escapeXml(note)}</span>` : ""}</p><div>${[aData, bData, heatmap].map((data, j) => `<figure><img alt="${["Before", "After", "Difference"][j]}" src="data:image/png;base64,${data.toString("base64")}"><figcaption>${["Before", "After", "Difference"][j]}</figcaption></figure>`).join("")}</div></section>`);
   }
-  const report = { schemaVersion: 2, options: { ...options, offsets }, changedSamples: rows.filter(row => row.changed).length, rows, note: "Visual differences are candidates for review, not confirmed regressions. Only sampled timestamps are compared; motion between them may be missed." };
+  const { extraHtml: _extra, ...reportOptions } = options;
+  const report = { schemaVersion: 2, options: { ...reportOptions, offsets }, changedSamples: rows.filter(row => row.changed).length, rows, note: "Visual differences are candidates for review, not confirmed regressions. Only sampled timestamps are compared; motion between them may be missed." };
   await fs.writeFile(path.join(directory, "report.json"), JSON.stringify(report, null, 2));
-  await fs.writeFile(path.join(directory, "report.html"), `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>ClipQA comparison</title><style>body{font:16px system-ui;background:#0d1117;color:#e6edf3;margin:32px}section{border-top:1px solid #30363d;padding:16px 0}div{display:flex;flex-wrap:wrap;gap:12px}figure{margin:0;flex:1;min-width:240px}img{width:100%}figcaption{color:#8b949e}h2{font-size:18px}.event{color:#fbbf24}</style><h1>ClipQA comparison</h1><p>${report.changedSamples}/${rows.length} samples changed. ${report.note}</p>${htmlRows.join("")}</html>`);
+  await fs.writeFile(path.join(directory, "report.html"), `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>ClipQA comparison</title><style>body{font:16px system-ui;background:#0d1117;color:#e6edf3;margin:32px}section{border-top:1px solid #30363d;padding:16px 0}div{display:flex;flex-wrap:wrap;gap:12px}figure{margin:0;flex:1;min-width:240px}img{width:100%}figcaption{color:#8b949e}h2{font-size:18px}.event{color:#fbbf24}</style><h1>ClipQA comparison</h1>${options.extraHtml ?? ""}<h2>Sampled frames</h2><p>${report.changedSamples}/${rows.length} samples changed. ${report.note}</p>${htmlRows.join("")}</html>`);
   const worst = rows.reduce((best, row, i) => row.score > rows[best]!.score ? i : best, 0);
   const previewPath = path.join(directory, "preview.jpg");
   const previews = await Promise.all(["before", "after", "difference"].map(async (name, i) => ({ input: await sharp(path.join(directory, `${name}-${worst}.png`)).resize(320, 180, { fit: "contain", background: "black" }).png().toBuffer(), left: i * 320, top: 0 })));

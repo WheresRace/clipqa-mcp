@@ -18,6 +18,8 @@ import { analyzeMotion, compareVideos, estimateLag, indexVideo, motionSeries } f
 import { directoryBytes, deleteSession } from "./artifacts.js";
 import { blenderOrbitScript, locateViews, orbitViews, robloxOrbitScript, type OrbitOptions } from "./orbit.js";
 import { changeMap, frameStrip, onionSkin } from "./between.js";
+import { clipMetrics, compareMetrics, differenceTimeline, sideBySide } from "./metrics.js";
+import { escapeXml } from "./media.js";
 import { CHECKPOINTS, checklistText, scoreFindings, writeQaReport } from "./qa.js";
 import type { QaEvent, Region, RecordingSession } from "./types.js";
 
@@ -337,8 +339,8 @@ export async function createServer(config: ClipQaConfig): Promise<McpServer> {
 
   server.registerTool("compare_clips", {
     description: "Compare completed before/after clips. align=auto lines the runs up by a shared mark_event label, else by cross-correlating motion; pass beforeStart/afterStart to align manually. sampling=changes samples where either clip changes instead of evenly. Writes HTML/JSON reports with paired frames and difference maps. Changes are review candidates, not automatic bug diagnoses.",
-    inputSchema: z.object({ beforeSessionId: z.string().uuid(), afterSessionId: z.string().uuid(), beforeStart: z.number().min(0).optional(), afterStart: z.number().min(0).optional(), align: z.enum(["auto", "events", "motion", "none"]).default("auto"), maxLagSeconds: z.number().min(.5).max(120).default(10), sampling: z.enum(["changes", "even"]).default("changes"), seconds: z.number().positive().max(600).optional(), samples: z.number().int().min(2).max(60).default(12), threshold: z.number().positive().max(1).default(.08), analysisWidth: z.number().int().min(160).max(1280).default(320), ignoreRegions: z.array(region).max(20).default([]) }),
-  }, async ({ beforeSessionId, afterSessionId, beforeStart, afterStart, align, maxLagSeconds, sampling, seconds, samples, threshold, analysisWidth, ignoreRegions }) => {
+    inputSchema: z.object({ beforeSessionId: z.string().uuid(), afterSessionId: z.string().uuid(), beforeStart: z.number().min(0).optional(), afterStart: z.number().min(0).optional(), align: z.enum(["auto", "events", "motion", "none"]).default("auto"), maxLagSeconds: z.number().min(.5).max(120).default(10), sampling: z.enum(["changes", "even"]).default("changes"), seconds: z.number().positive().max(600).optional(), samples: z.number().int().min(2).max(60).default(12), threshold: z.number().positive().max(1).default(.08), analysisWidth: z.number().int().min(160).max(1280).default(320), ignoreRegions: z.array(region).max(20).default([]), quality: z.boolean().default(true).describe("Measure both clips (smoothness, real FPS, pacing, easing, sharpness, exposure, flicker...) and say which improved or regressed."), timeline: z.boolean().default(true).describe("Compare every aligned frame, not just samples, and chart where the clips diverge."), sideBySideVideo: z.boolean().default(true).describe("Save a watchable MP4: before | after on top, amplified difference below (first 120 s)."), region: region.optional().describe("Measure quality only inside this part of both clips.") }),
+  }, async ({ beforeSessionId, afterSessionId, beforeStart, afterStart, align, maxLagSeconds, sampling, seconds, samples, threshold, analysisWidth, ignoreRegions, quality, timeline, sideBySideVideo, region: crop }) => {
     try {
       const [before, after] = await Promise.all([completed(beforeSessionId, "comparing"), completed(afterSessionId, "comparing")]);
       const [a, b] = await Promise.all([media.duration(before.videoPath), media.duration(after.videoPath)]);
@@ -371,8 +373,39 @@ export async function createServer(config: ClipQaConfig): Promise<McpServer> {
       }
       const notes = (offsets ?? Array.from({ length: samples }, (_, i) => i * duration / samples)).map(o => eventsNear(after.events, startAfter + o, .25));
       const directory = path.join(store.sessionDir(afterSessionId), "comparisons", randomUUID());
-      const report = await compareVideos(media, before.videoPath, after.videoPath, directory, { beforeStart: startBefore, afterStart: startAfter, seconds: duration, samples, threshold, ignore: ignoreRegions, analysisWidth, notes, ...(offsets ? { offsets } : {}) });
-      return { content: [...textResult({ alignment, ...report }).content, { type: "text" as const, text: "Highest-scoring sample: before | after | difference. Timestamps are in previewSample." }, await imageContent(report.previewPath)] };
+      const measureSeconds = Math.min(duration, 600);
+      const [fpsBefore, fpsAfter] = await Promise.all([media.frameRate(before.videoPath), media.frameRate(after.videoPath)]);
+      const rate = Math.min(60, Math.round(Math.min(fpsBefore, fpsAfter)));
+      const [qa, qb] = quality ? await Promise.all([
+        clipMetrics(config.ffmpegPath, before.videoPath, startBefore, startBefore + measureSeconds, rate, { ...(crop ? { crop } : {}), events: before.events, recordedFps: before.fps }),
+        clipMetrics(config.ffmpegPath, after.videoPath, startAfter, startAfter + measureSeconds, rate, { ...(crop ? { crop } : {}), events: after.events, recordedFps: after.fps }),
+      ]) : [undefined, undefined];
+      const qualityResult = qa && qb ? compareMetrics(qa.metrics, qb.metrics) : undefined;
+      const [line, video] = await Promise.all([
+        timeline ? differenceTimeline(config.ffmpegPath, before.videoPath, startBefore, after.videoPath, startAfter, measureSeconds, path.join(directory, "timeline.png"), { threshold, ignore: ignoreRegions }) : undefined,
+        sideBySideVideo ? sideBySide(config.ffmpegPath, runner, before.videoPath, startBefore, after.videoPath, startAfter, duration, path.join(directory, "side-by-side.mp4")) : undefined,
+      ]);
+      const colour = (v: string) => v === "improved" ? "#4ade80" : v === "regressed" ? "#f87171" : v === "changed" ? "#fbbf24" : "#8b949e";
+      const extraHtml = [
+        qualityResult ? `<h2>Quality: ${qualityResult.overall.toUpperCase()}</h2><table style="border-collapse:collapse">${qualityResult.rows.map(r => `<tr style="color:${colour(r.verdict)}"><td style="padding:3px 12px 3px 0">${escapeXml(r.label)}</td><td>${r.before ?? "–"}</td><td>→ ${r.after ?? "–"}</td><td style="padding-left:12px">${r.verdict}</td></tr>`).join("")}</table>` : "",
+        line ? `<h2>Every-frame difference</h2><img alt="Difference timeline" src="data:image/png;base64,${(await fs.readFile(line.chartPath)).toString("base64")}"><p>${line.divergent.length ? `Clips diverge at: ${line.divergent.map(d => `${d.start}–${d.end}s`).join(", ")}` : "No sustained divergence."}</p>` : "",
+        video ? `<h2>Side by side</h2><video controls width="960" src="side-by-side.mp4"></video>` : "",
+      ].join("");
+      const report = await compareVideos(media, before.videoPath, after.videoPath, directory, { beforeStart: startBefore, afterStart: startAfter, seconds: duration, samples, threshold, ignore: ignoreRegions, analysisWidth, notes, extraHtml, ...(offsets ? { offsets } : {}) });
+      await fs.writeFile(path.join(directory, "quality.json"), JSON.stringify({ before: qa?.metrics, after: qb?.metrics, comparison: qualityResult, timeline: line }, null, 2));
+      // Keep the reply small: only rows that moved, and file paths instead of extra images.
+      const compact = {
+        alignment,
+        ...(qualityResult ? { quality: { overall: qualityResult.overall, improved: qualityResult.improved, regressed: qualityResult.regressed, changed: qualityResult.changed, rows: qualityResult.rows.filter(r => r.verdict !== "unchanged" && r.verdict !== "n/a") } } : {}),
+        ...(line ? { timeline: { divergent: line.divergent, peak: line.peak, mean: line.mean, framesCompared: line.samples, chartPath: line.chartPath } } : {}),
+        ...(video ? { sideBySideVideo: video.videoPath } : {}),
+        changedSamples: report.changedSamples, samples: report.rows.length, previewSample: report.previewSample,
+        rows: report.rows.filter(r => r.changed).map(r => ({ beforeSeconds: r.beforeSeconds, afterSeconds: r.afterSeconds, score: Number(r.score.toFixed(4)), ssim: Number(r.ssim.toFixed(4)), changed: r.changed, ...(r.note ? { note: r.note } : {}) })),
+        reportPath: report.reportPath, jsonPath: report.jsonPath,
+        next: "Use inspect_between on a divergent range (mode strip or changes) to see the frames in between.",
+      };
+      const chart = line ? [{ type: "image" as const, mimeType: "image/png", data: (await fs.readFile(line.chartPath)).toString("base64") }] : [];
+      return { content: [...textResult(compact).content, { type: "text" as const, text: "Highest-scoring sample: before | after | difference." }, await imageContent(report.previewPath), ...chart] };
     } catch (error) { return errorResult(error); }
   });
 
@@ -511,7 +544,7 @@ export async function createServer(config: ClipQaConfig): Promise<McpServer> {
   });
 
   server.registerTool("analyze_motion", {
-    description: "Measure motion fluidity in a completed clip: hitches (frozen/repeated frames during movement), pops (sudden jumps far above the surrounding motion), and uneven speed. Returns a 0-100 fluidity score, flagged timestamps, and frames around the worst problem. Record at 30-60 FPS for meaningful results.",
+    description: "Measure motion fluidity in a completed clip: hitches (frozen/repeated frames during movement), pops (sudden jumps far above the surrounding motion), and uneven speed. Returns a 0-100 fluidity score, flagged timestamps, frames around the worst problem, and quality measurements (real FPS while moving, frame pacing, ease in/out, jitter while still, sharpness, exposure, flicker, settle time after events). Record at 30-60 FPS for meaningful results.",
     inputSchema: z.object({ sessionId: z.string().uuid(), startSeconds: z.number().min(0).default(0), endSeconds: z.number().positive().optional(), region: region.optional(), fps: z.number().int().min(5).max(120).optional() }),
   }, async ({ sessionId, startSeconds, endSeconds, region: crop, fps }) => {
     try {
@@ -533,6 +566,10 @@ export async function createServer(config: ClipQaConfig): Promise<McpServer> {
     if (startSeconds >= end) throw new Error("startSeconds must be before the end of the clip.");
     const fileFps = Math.round(await media.frameRate(session.videoPath));
     const rate = Math.min(fps ?? fileFps, 120);
+    if (rate <= 60 && end - startSeconds <= 600) {
+      const { metrics, series } = await clipMetrics(config.ffmpegPath, session.videoPath, startSeconds, end, rate, { ...(crop ? { crop } : {}), events: session.events, recordedFps: session.fps || fileFps });
+      return { ...analyzeMotion(series, session.fps || fileFps), quality: metrics };
+    }
     return analyzeMotion(await motionSeries(config.ffmpegPath, session.videoPath, startSeconds, end, rate, crop), session.fps || fileFps);
   }
 
