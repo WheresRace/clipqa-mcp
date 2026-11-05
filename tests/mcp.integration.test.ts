@@ -49,6 +49,7 @@ describe("MCP integration", () => {
         "record_finding",
         "recording_progress",
         "recover_session",
+        "roundtable_review",
         "start_recording",
         "stop_recording",
         "wait_until_stable",

@@ -2,6 +2,16 @@
 
 All notable changes will be documented here.
 
+## 0.4.0 - 2026-11-05
+
+- See between frames: `inspect_between` shows every frame of a range with repeated frames and jumps flagged (`strip`), moving parts layered earliest to latest (`onion`), or a map of everything that changed in any frame (`changes`).
+- Compare by quality: `compare_clips` measures both clips (smoothness, real FPS while moving, frame pacing, easing, jitter while still, sharpness, exposure, flicker, black frames, colour) and reports each as improved, regressed or unchanged. It also compares every aligned frame on a divergence timeline, saves a watchable side-by-side MP4, and lists grade changes when both clips were reviewed. Replies list only the rows that moved.
+- `analyze_motion` includes the same quality measurements and settle time after events.
+- Graded scoring: checkpoints are graded 0-4 against written standards. A plain pass is grade 3 and keeps full points. Profiles for character, UI, VFX, camera, gameplay and general work; character adds the principles of animation. Measured checkpoints are auto-graded. Up to +10 bonus points for measured smoothness, full frame rate, even pacing, easing, steadiness and excellent grades, plus a letter grade. `qa_review` accepts must-pass `requirements`.
+- Roundtable audit: after a complete review, `qa_report` has small models (Claude Haiku and Codex through their local CLIs) audit it for misses and disputed grades. It runs once per distinct review, with no tools, one compact image, a token budget, and timeouts that kill the whole process tree. `roundtable_review` fetches the result; `CLIPQA_ROUNDTABLE=off` disables it.
+- Memory: the frame decoder fills one buffer per frame instead of re-concatenating on every chunk, and the image cache is capped. `npm run leak-check` verifies a flat heap and no leftover processes, timers or pipes after shutdown.
+- `stop_recording` suggests `qa_review` as the next step. Tests never start real reviewers.
+
 ## 0.3.0 - 2026-10-29
 
 - Add a structured QA review: `qa_review` checklist (body proportions, twisted/broken meshes, pose vs request, fluidity, every-angle coverage, materials), `record_finding` with zoomed evidence, and `qa_report` scoring with PASS / NEEDS WORK / FAIL / INCOMPLETE verdicts.

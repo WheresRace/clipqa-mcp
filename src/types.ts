@@ -66,6 +66,8 @@ export interface RecordingSession {
   requirements?: string[];
   /** Measurements from the last qa_review, used for auto grades and bonus points. */
   qualityMetrics?: ClipMetrics;
+  /** Contact sheet from the last qa_review, reused as the roundtable's evidence image. */
+  reviewSheet?: string;
   roundtable?: RoundtableRecord;
 }
 

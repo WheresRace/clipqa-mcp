@@ -4,6 +4,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { McpServer } from "@modelcontextprotocol/server";
+import sharp from "sharp";
 import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import * as z from "zod/v4";
 import type { ClipQaConfig } from "./config.js";
@@ -20,6 +21,8 @@ import { blenderOrbitScript, locateViews, orbitViews, robloxOrbitScript, type Or
 import { changeMap, frameStrip, onionSkin } from "./between.js";
 import { clipMetrics, compareMetrics, differenceTimeline, sideBySide } from "./metrics.js";
 import { escapeXml } from "./media.js";
+import { buildPacket, panelHtml, Roundtable } from "./roundtable.js";
+import type { RoundtableRecord } from "./types.js";
 import { autoFindings, checklistText, compareReviews, PROFILES, scoreFindings, sessionCheckpoints, writeQaReport } from "./qa.js";
 import type { QaEvent, Region, RecordingSession } from "./types.js";
 
@@ -71,7 +74,9 @@ export function lagFromEvents(before: QaEvent[], after: QaEvent[]): { lagSeconds
   return undefined;
 }
 
-export async function createServer(config: ClipQaConfig): Promise<McpServer> {
+export async function createServer(config: ClipQaConfig, options: { roundtable?: Roundtable } = {}): Promise<McpServer> {
+  // libvips keeps decoded images cached by default; cap it so a long-running server keeps a small footprint.
+  sharp.cache({ memory: 32, files: 0, items: 64 });
   const runner = new NodeCommandRunner();
   const store = new SessionStore(config.dataDir);
   await store.initialize();
@@ -80,8 +85,27 @@ export async function createServer(config: ClipQaConfig): Promise<McpServer> {
   const media = new MediaProcessor(config.ffmpegPath, config.ffprobePath, runner);
   const server = new McpServer({ name: "clipqa-mcp", version: VERSION });
   const close = server.close.bind(server);
-  server.close = async () => { await recorder.shutdown(); await close(); };
-  server.server.onclose = () => { void recorder.shutdown(); };
+  const roundtable = options.roundtable ?? new Roundtable();
+  server.close = async () => { roundtable.shutdown(); await recorder.shutdown(); await close(); };
+  server.server.onclose = () => { roundtable.shutdown(); void recorder.shutdown(); };
+  // Waits up to `seconds` without leaving a timer behind when the task finishes first.
+  const within = async <T>(task: Promise<T>, seconds: number): Promise<T | undefined> => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try { return await Promise.race([task, new Promise<undefined>(resolve => { timer = setTimeout(() => resolve(undefined), seconds * 1000); })]); }
+    finally { clearTimeout(timer); }
+  };
+  const compactPanel = (r: RoundtableRecord) => ({ state: r.state, ...(r.agreement !== undefined ? { agreement: r.agreement } : {}), reviewers: r.reviewers.map(v => ({ name: v.name, ok: v.ok, ...(v.tokens ? { tokens: v.tokens.input + v.tokens.output } : {}), ...(v.error ? { error: v.error.slice(0, 160) } : {}) })), challenges: r.challenges, ...(r.note ? { note: r.note } : {}) });
+  /** Start (or reuse) the roundtable audit for a complete review and refresh the report when it finishes. */
+  const audit = async (sessionId: string, reportDir: string, waitSeconds: number) => {
+    const session = await store.read(sessionId);
+    const score = scoreFindings(session.findings, sessionCheckpoints(session), session.qualityMetrics, session.fps);
+    if (score.verdict === "INCOMPLETE") return { panel: undefined, note: "The roundtable audit runs once every checkpoint is graded, so it is not spent on half-finished reviews." };
+    const packet = await buildPacket(session, score, path.join(store.sessionDir(sessionId), "roundtable"));
+    const task = roundtable.review(session, packet, path.join(store.sessionDir(sessionId), "roundtable", "work"), async record => { await store.update(sessionId, s => ({ ...s, roundtable: record })); });
+    task.then(async record => { if (record.state !== "running") await writeQaReport(await store.read(sessionId), reportDir, panelHtml(record, escapeXml)); }).catch(() => undefined);
+    const panel = await within(task, waitSeconds);
+    return panel ? { panel } : { panel: undefined, note: "The roundtable audit is still running; call roundtable_review to get its result." };
+  };
 
   const completed = async (sessionId: string, action: string): Promise<RecordingSession> => {
     const session = await store.read(sessionId);
@@ -92,7 +116,7 @@ export async function createServer(config: ClipQaConfig): Promise<McpServer> {
 
   server.registerTool("capture_status", {
     description: "Check installed capture backends and platform requirements before recording.", inputSchema: z.object({}),
-  }, async () => { try { return textResult(await recorder.capabilities()); } catch (e) { return errorResult(e); } });
+  }, async () => { try { return textResult({ ...(await recorder.capabilities()), roundtable: { mode: roundtable.config.mode, maxTokens: roundtable.config.maxTokens, reviewers: await roundtable.status() } }); } catch (e) { return errorResult(e); } });
 
   server.registerTool("list_sources", {
     description: "List recordable windows on Windows/X11 or display sources on macOS. macOS capture includes the selected display, not just one app.", inputSchema: z.object({}),
@@ -310,7 +334,7 @@ export async function createServer(config: ClipQaConfig): Promise<McpServer> {
     },
     async ({ sessionId }) => {
       try {
-        return textResult(await recorder.stop(sessionId));
+        return textResult({ ...(await recorder.stop(sessionId)), next: "qa_review to review the clip (pass the user's request and any must-pass requirements)." });
       } catch (error) {
         return errorResult(error);
       }
@@ -640,6 +664,7 @@ export async function createServer(config: ClipQaConfig): Promise<McpServer> {
       const index = await indexVideo(config.ffmpegPath, session.videoPath, startSeconds, end, 15, crop);
       const timestamps = chooseBoundedInspectionTimestamps({ startSeconds, endSeconds: end, eventTimesSeconds: session.events.map(e => e.timestampMs / 1000), visualChangeTimesSeconds: index.changes.map(c => c.timestamp) }, samples);
       const sheet = path.join(store.sessionDir(sessionId), "qa", randomUUID(), "overview.jpg");
+      session = await store.update(sessionId, s => ({ ...s, reviewSheet: sheet }));
       await media.createContactSheet(session.videoPath, sheet, timestamps, { labels: timestamps.map(t => eventsNear(session.events, t, .25)), ...(crop ? { crop } : {}) });
       const motion = await motionReport(session, startSeconds, end, crop, undefined).catch(() => undefined);
       const metrics = motion && "quality" in motion ? motion.quality : undefined;
@@ -679,12 +704,25 @@ export async function createServer(config: ClipQaConfig): Promise<McpServer> {
 
   server.registerTool("qa_report", {
     description: "Score the review: points per checkpoint by grade (3 good/pass full, 2 acceptable 70%, 1 poor 25%, 0 none, unclear half), up to +10 bonus points for measured smoothness, full frame rate, even pacing, easing and steadiness and for excellent grades, a letter grade, verdict PASS / NEEDS WORK / FAIL (any blocker) / INCOMPLETE (unchecked items), and a standalone HTML/JSON report with evidence images.",
-    inputSchema: z.object({ sessionId: z.string().uuid() }),
-  }, async ({ sessionId }) => {
+    inputSchema: z.object({ sessionId: z.string().uuid(), roundtable: z.boolean().default(true).describe("After scoring a complete review, have small models (local Claude Haiku / Codex CLIs) audit it for missed issues. Runs once per distinct review."), waitSeconds: z.number().min(0).max(300).default(90).describe("How long to wait for the audit before returning; it keeps running in the background.") }),
+  }, async ({ sessionId, roundtable: wantPanel, waitSeconds }) => {
     try {
-      const session = await store.read(sessionId);
-      const result = await writeQaReport(session, path.join(store.sessionDir(sessionId), "qa", `report-${randomUUID()}`));
-      return textResult(result);
+      const directory = path.join(store.sessionDir(sessionId), "qa", `report-${randomUUID()}`);
+      const result = await writeQaReport(await store.read(sessionId), directory);
+      const run = wantPanel && roundtable.config.mode === "auto" ? await audit(sessionId, directory, waitSeconds) : { panel: undefined, note: roundtable.config.mode === "off" ? "Roundtable is off (CLIPQA_ROUNDTABLE=off)." : undefined };
+      const final = run.panel && run.panel.state !== "running" ? await writeQaReport(await store.read(sessionId), directory, panelHtml(run.panel, escapeXml)) : result;
+      return textResult({ ...final, ...(run.panel ? { roundtable: compactPanel(run.panel) } : run.note ? { roundtable: { note: run.note } } : {}) });
+    } catch (error) { return errorResult(error); }
+  });
+
+  server.registerTool("roundtable_review", {
+    description: "Get (or start) the roundtable audit of a completed review: small models check the main reviewer's grades against the evidence and list possible misses and disputed grades. Results are cached per review, so asking again costs nothing. Verify every challenge yourself before changing a grade.",
+    inputSchema: z.object({ sessionId: z.string().uuid(), waitSeconds: z.number().min(0).max(300).default(60) }),
+  }, async ({ sessionId, waitSeconds }) => {
+    try {
+      if (roundtable.config.mode === "off") return textResult({ roundtable: { note: "Roundtable is off (CLIPQA_ROUNDTABLE=off)." } });
+      const run = await audit(sessionId, path.join(store.sessionDir(sessionId), "qa", `report-${randomUUID()}`), waitSeconds);
+      return textResult({ roundtable: run.panel ? compactPanel(run.panel) : { note: run.note } });
     } catch (error) { return errorResult(error); }
   });
 

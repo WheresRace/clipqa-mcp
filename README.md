@@ -8,7 +8,7 @@
 
 ClipQA runs locally through MCP. It never moves your mouse, types, or activates application windows. Saved videos are available for you to watch, not just for an AI to analyze.
 
-> **v0.3 public preview.** Windows Graphics Capture has been tested live on Windows. Linux X11 and macOS display backends have argument/parsing tests; native capture on those systems still needs validation. See [platform setup](docs/CAPTURE.md).
+> **v0.4 public preview.** Windows Graphics Capture has been tested live on Windows. Linux X11 and macOS display backends have argument/parsing tests; native capture on those systems still needs validation. See [platform setup](docs/CAPTURE.md).
 
 ## Quick start
 
@@ -76,13 +76,15 @@ Saved videos, previews, screenshots, and reports stay on disk until explicitly d
 | `inspect_clip` | Return an event-labelled contact sheet, perceptual-change index and quality warnings. |
 | `get_frames` | Retrieve specific frames (optionally cropped) with configurable image size. |
 | `zoom_frame` | Show a labelled grid, then zoom into a cell, point or region at native resolution. |
-| `analyze_motion` | Score fluidity: hitches, pops and uneven speed with timestamps. |
-| `compare_clips` | Auto-align two runs, sample where they change, and write difference reports. |
+| `inspect_between` | See what happens between samples: every frame of a range, an onion skin of moving parts, or a map of everything that changed. |
+| `analyze_motion` | Score fluidity (hitches, pops, uneven speed) and measure real FPS, frame pacing, easing, stillness, sharpness, exposure, flicker and settle time. |
+| `compare_clips` | Auto-align two runs, say which qualities improved or regressed, compare every frame on a timeline, and save a side-by-side video. |
 | `orbit_plan` | Generate a 360° camera script (Roblox, Blender or generic) covering every angle plus close-ups. |
 | `orbit_sheet` | Find each view in the recorded orbit and return labelled every-angle sheets. |
-| `qa_review` | Return the QA checklist, a contact sheet and an automatic fluidity check. |
-| `record_finding` | Record pass/fail/unclear per checkpoint, with zoomed evidence. |
-| `qa_report` | Score the review (points per checkpoint) and write an HTML/JSON report. |
+| `qa_review` | Return the checklist for a profile (character, UI, VFX, camera, gameplay, general) with written standards, your must-pass requirements, measured auto-grades and a contact sheet. |
+| `record_finding` | Grade a checkpoint 0-4 with a note and optional zoomed evidence. |
+| `qa_report` | Score the review with bonus points and a letter grade, write an HTML/JSON report, and run the roundtable audit. |
+| `roundtable_review` | Get (or start) the small-model audit of a finished review. |
 | `delete_session` | Delete a stopped session and all its artifacts. |
 | `cleanup_sessions` | Preview or delete old sessions; defaults to a dry run. |
 
@@ -103,18 +105,46 @@ Replace the handle with one from `list_sources`. Without `bufferSeconds`, the fu
 
 This is a **disk buffer**, bounded by time rather than bytes. Preview exports and finalization need extra space. Saved previews remain until cleanup.
 
-### Quality review checklist
+### Quality review: standards, grades and bonus points
 
-`qa_review` gives the assistant a checklist of things that commonly go wrong, each with what to look for, how to verify it, and a point value:
+`qa_review` gives the assistant a checklist for the kind of work being checked, chosen with `profile`:
 
-- **Body proportions**: left/right symmetry, head/torso/limb ratios, joint placement, proportions holding steady while moving.
-- **Mesh integrity**: twisted or candy-wrapped joints, spikes, holes and inverted faces, clipping through the body or floor, detached parts.
-- **Pose and intent**: every part of the user's request checked by name (which hand, facing, prop, expression), anatomically possible poses, feet and hands actually in contact.
-- **Motion**: fluidity (measured automatically by `analyze_motion`), natural timing and arcs, no jitter, clean loops.
-- **Coverage**: checked from every angle with `orbit_plan` / `orbit_sheet`.
-- **Materials**: textures, colours and lighting artefacts.
+| Profile | Checks |
+| --- | --- |
+| `character` (default) | Body proportions, twisted or broken meshes, clipping, pose vs request, contacts, the principles of animation (anticipation and follow-through, arcs, weight), every-angle coverage, materials |
+| `ui` | Layout and alignment, text legibility (WCAG AA contrast), interactive states, transitions (150-400 ms, eased), response within 100 ms |
+| `vfx` | Readability, anticipation/impact/dissipation, blending with the scene |
+| `camera` | No unintended shake, smooth eased moves, framing |
+| `gameplay` | Input response, action feedback, physics |
+| `general` | Glitches, consistency, request match |
 
-The assistant calls `record_finding` for every checkpoint (pass, fail or unclear, with a note and optional zoomed evidence). `qa_report` scores it: pass earns full points, unclear half, fail none. Any **blocker** failure makes the verdict **FAIL**; unchecked items make it **INCOMPLETE**; any other failure or a score below 85 is **NEEDS WORK**. The checklist directs the assistant's judgment; apart from motion fluidity, ClipQA does not detect these defects by itself.
+Every profile also includes measured standards: smoothness, real frame rate while moving, even frame pacing, flicker and black frames, and exposure. Those are **graded automatically** from the video unless the assistant grades them itself. Pass your own `requirements` (for example `["waves with the LEFT hand", "loop is seamless"]`) and each becomes a must-pass checkpoint.
+
+The assistant grades each checkpoint 0-4 with `record_finding`: 0 broken, 1 poor, 2 acceptable, 3 good (meets the written standard), 4 excellent. Grade 3, or a plain `pass`, earns full points, 2 earns 70%, 1 earns 25%, and unclear earns half. `qa_report` then adds up to **+10 bonus points** for quality beyond the standard: smoothness 95+ with no hitches, full frame rate at 50+ FPS, even pacing, eased movement, rock-steady stillness, and checkpoints graded excellent. There's no bonus when a blocker is present. Reports show the score, the bonus and a letter grade (A+ at 100 and above).
+
+Verdicts: any **blocker** → **FAIL**; unchecked items → **INCOMPLETE**; any other failure (including a missed requirement) or a score below 85 → **NEEDS WORK**; otherwise **PASS**. Apart from the measured checkpoints, the checklist directs the assistant's judgment; ClipQA does not detect those defects by itself.
+
+### Roundtable audit
+
+Once the main model has graded **every** checkpoint, `qa_report` asks a panel of small models to audit the review: Claude Haiku through your local Claude Code CLI, and Codex through your local Codex CLI. Each gets one compact image (the review's contact sheet plus up to three evidence crops) and a short text summary of the request, measurements and grades. Each returns at most five possible misses and five disputed grades. Issues raised by both reviewers are listed first. The main model is told to verify each challenge itself before changing anything, because small models can be wrong.
+
+Keeping cost low:
+
+- It runs only for a complete review, and once per distinct review: asking again with `roundtable_review` reuses the saved result and costs nothing.
+- Reviewers get no tools, no MCP servers (so ClipQA can never launch itself), no project settings and one turn, with a structured answer. Codex runs at low reasoning effort with its built-in tools switched off.
+- Measured on Windows: about **7,000 tokens and 12 seconds** for one Codex review. A reviewer whose sign-in fails is skipped for the rest of the session, using 0 tokens.
+- A budget caps the estimated tokens per audit (default 24,000). Reviewers that do not fit are skipped.
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `CLIPQA_ROUNDTABLE` | `auto` | `off` disables the audit entirely. |
+| `CLIPQA_ROUNDTABLE_REVIEWERS` | `claude,codex` | Which local CLIs may review. Missing CLIs are skipped. |
+| `CLIPQA_ROUNDTABLE_CLAUDE_MODEL` | `haiku` | Claude model alias for the reviewer. |
+| `CLIPQA_ROUNDTABLE_CODEX_MODEL` | your Codex default | Codex model, e.g. a small or mini model. |
+| `CLIPQA_ROUNDTABLE_MAX_TOKENS` | `24000` | Token budget per audit across reviewers. |
+| `CLIPQA_ROUNDTABLE_TIMEOUT_SECONDS` | `120` | Hard time limit per reviewer; the process tree is killed after it. |
+
+The audit uses your own CLI sign-ins and subscriptions, so its tokens count toward those plans. `capture_status` shows which reviewers are available.
 
 ### Every angle (360° orbit)
 
@@ -134,6 +164,14 @@ For Roblox, `logs: [{"path": "<LOCALAPPDATA>\\Roblox\\logs", "pattern": "CLIPQA_
 
 Event timestamps are measured from the first captured frame. Before 0.3.0 they were measured from session creation, which put live events slightly ahead of the video. `attach_log` or `start_recording.logs` follows a file, or the newest `.log`/`.txt` in a folder, from its current end. Lines starting with an ISO-8601 time use that time; error and warning lines are tagged. For Roblox Studio output use the `Roblox\\logs` folder under `LOCALAPPDATA` with pattern `FLog::Output|FLog::Error|FLog::Warning`.
 
+### See between frames
+
+Sampled frames can miss what happens between them. `inspect_between` shows it three ways:
+
+- `mode: "strip"` shows every frame of a range of up to 10 s (or every Nth frame when the range is long) in a numbered grid, with **repeated frames** and **sudden jumps** outlined.
+- `mode: "onion"` layers the moving parts of several frames into one image, blue (earliest) to red (latest). Arcs, pops and sliding feet show up in one picture.
+- `mode: "changes"` scans **every** frame of up to 60 s and maps everything that changed at any point, with the peak moment and hotspot regions. A one-frame flash between two samples still shows up.
+
 ### Perceptual indexing and comparison
 
 `inspect_clip` analyzes resized RGB frames using local structural similarity and color differences. Local scoring can find a small button flash that scene-cut detection misses. `indexFps` defaults to 15 and can be raised to 60. Analysis streams frames with bounded candidate storage and caches results. Contact sheets are capped at 24 images; exact-frame requests at 16.
@@ -152,6 +190,8 @@ Event timestamps are measured from the first captured frame. Before 0.3.0 they w
 }
 ```
 
+`compare_clips` also measures both clips the same way and says which qualities **improved**, **regressed** or stayed the same: smoothness, hitches, pops, real FPS while moving, frame pacing, ease in/out, jitter while still, sharpness, crushed blacks, blown highlights, flicker, black frames, brightness and average colour. Small changes below each metric's threshold count as unchanged. It compares **every aligned frame** (not just the samples) on a timeline chart that marks where the runs diverge. It also saves a side-by-side MP4 (before | after on top, amplified difference below) that you can watch. When both clips were reviewed, it lists grade changes per checkpoint. Turn parts off with `quality`, `timeline` or `sideBySideVideo` set to `false`; `region` measures only part of the frame.
+
 Reports identify **visual differences**, which can be intentional; they do not automatically establish a regression.
 
 ## Privacy and resources
@@ -160,6 +200,8 @@ Reports identify **visual differences**, which can be intentional; they do not a
 - Recorder processes are hidden and do not control input or focus.
 - Recording excludes audio and webcams. Imported files are copied as supplied and may contain audio from their original recorder.
 - ClipQA opens no network listener and does not upload recordings itself. Images returned over MCP go to your client, which may send them to its AI provider.
+- The roundtable audit sends one review image and a text summary to the local Claude and/or Codex CLIs, which send them to their providers. Set `CLIPQA_ROUNDTABLE=off` to keep reviews to your main client only.
+- Run `npm run leak-check` to repeat every heavy tool through the MCP server with forced garbage collection. It fails if the heap keeps growing or anything is left running after shutdown.
 - One recording runs per MCP process. Configure FPS and `maxWidth` to manage overhead. Automatic encoder selection probes hardware first.
 - Startup waits for actual frames. Wall-clock limits stop stalled capture. Normal shutdown finalizes recordings; concurrent event updates are serialized.
 - Cleanup defaults to a preview and excludes active sessions.
@@ -186,7 +228,7 @@ The original synthetic timestamp benchmark covers 8/8 defect intervals versus 2/
 - Sampling can miss changes between frames or below analysis resolution. Comparisons require aligned runs. Internal failures still need logs and reproducible test steps.
 - Recording, analysis, disk writes and finalization consume resources. Zero slowdown is not guaranteed. Full recordings and saved previews grow until cleanup.
 - Forced termination may leave segments without a finalized MP4. Use orderly shutdown; preserve interrupted sessions if you want to recover their evidence.
-- Releases are published to npm and GitHub. Direct GitHub installs build from source on install (`prepare`) and remain available for testing unreleased commits.
+- Releases are published to npm. Installing straight from a GitHub link is not supported: the repository does not ship compiled files, so use the npm package.
 
 The Roblox Studio plugin is deferred; Roblox support comes through the orbit script and log following. Core recording, progress, comparison and event tools work independently of any game engine.
 

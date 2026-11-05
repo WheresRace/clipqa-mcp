@@ -1,7 +1,7 @@
 {
   "name": "clipqa-mcp",
-  "version": "0.3.0",
-  "description": "Background window recording, frame-level QA evidence, 360° orbit sheets and a structured review checklist for AI agents via MCP.",
+  "version": "0.4.0",
+  "description": "Background window recording, frame-level QA evidence, in-between frame views, quality comparison, graded reviews and a small-model roundtable audit for AI agents via MCP.",
   "type": "module",
   "bin": {
     "clipqa-mcp": "build/index.js"
@@ -24,6 +24,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "benchmark": "tsx benchmarks/temporal-coverage.ts",
+    "leak-check": "node --expose-gc --import tsx benchmarks/leak-check.ts",
     "setup:wgc": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/install-wgc.ps1",
     "start": "node build/index.js",
     "prepack": "npm run build && npm test"
