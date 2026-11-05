@@ -100,13 +100,15 @@ export async function onionSkin(ffmpeg: string, video: string, start: number, en
   const n = frames.length;
   for (const [i, frame] of frames.entries()) {
     const t = n === 1 ? 1 : i / (n - 1), alpha = .35 + .65 * t;
-    const tint = [Math.round(255 * t), 90, Math.round(255 * (1 - t))];
+    const tint = [Math.round(255 * t), 70, Math.round(255 * (1 - t))];
     for (let p = 0; p < frame.length; p += 3) {
       const d = Math.abs(frame[p]! - background[p]!) + Math.abs(frame[p + 1]! - background[p + 1]!) + Math.abs(frame[p + 2]! - background[p + 2]!);
       if (d < 45) continue;
       if (i === n - 1) moving++;
+      // Keep the pixel's brightness but replace its hue with the time colour, so colour always means "when".
+      const lum = .2126 * frame[p]! + .7152 * frame[p + 1]! + .0722 * frame[p + 2]!;
       for (let c = 0; c < 3; c++) {
-        const lit = frame[p + c]! * .55 + tint[c]! * .45;
+        const lit = lum * .35 + tint[c]! * .65;
         out[p + c] = Math.round(out[p + c]! * (1 - alpha) + lit * alpha);
       }
     }
@@ -119,7 +121,7 @@ export async function onionSkin(ffmpeg: string, video: string, start: number, en
   return { outputPath, frames: n, timestamps: frames.map((_, i) => Number((start + i / fps).toFixed(3))), movingFraction: Number((moving / (width * height)).toFixed(4)) };
 }
 
-export interface ChangeMapResult { outputPath: string; framesScanned: number; peak: { timestamp: number; score: number }; changedArea: number; hotspots: Region[] }
+export interface ChangeMapResult { outputPath: string; framesScanned: number; peak: { timestamp: number; score: number }; changedArea: number; hotspots: Region[]; fullFrameChanges: number[] }
 
 // Scans EVERY frame in the range (at the source rate, capped at 60 FPS) and keeps the largest per-pixel change
 // between consecutive frames, so a flash or glitch that happens between two samples still shows up.
@@ -128,17 +130,24 @@ export async function changeMap(ffmpeg: string, video: string, start: number, en
   if (!(end > start)) throw new Error("endSeconds must be after startSeconds.");
   const width = 320, height = 180, fps = Math.min(60, sourceFps);
   const maxDelta = new Uint8Array(width * height);
-  let previous: Buffer | undefined, first: Buffer | undefined, framesScanned = 0, peak = { timestamp: start, score: 0 };
+  const frameDelta = new Uint8Array(width * height), fullFrameChanges: number[] = [];
+  let previous: Buffer | undefined, first: Buffer | undefined, framesScanned = 0, peak = { timestamp: start, score: 0 }, skipNext = false;
   await decodeFrames(ffmpeg, video, start, end, fps, width, height, options.crop, (frame, index) => {
     framesScanned++;
     if (!first) first = frame;
     if (previous) {
-      for (let p = 0, q = 0; q < maxDelta.length; p += 3, q++) {
+      let area = 0;
+      for (let p = 0, q = 0; q < frameDelta.length; p += 3, q++) {
         const d = Math.max(Math.abs(frame[p]! - previous[p]!), Math.abs(frame[p + 1]! - previous[p + 1]!), Math.abs(frame[p + 2]! - previous[p + 2]!));
-        if (d > maxDelta[q]!) maxDelta[q] = d;
+        frameDelta[q] = d; if (d > 24) area++;
       }
       const s = difference(previous, frame, width, height), score = Math.max(s.peakTileDifference, 1 - s.ssim);
-      if (score > peak.score) peak = { timestamp: Number((start + index / fps).toFixed(3)), score: Number(score.toFixed(4)) };
+      const timestamp = Number((start + index / fps).toFixed(3));
+      if (score > peak.score) peak = { timestamp, score: Number(score.toFixed(4)) };
+      // A change across most of the frame (a flash or a cut) would paint the whole map; list it instead, and skip
+      // the frame after it too, which changes everything back.
+      if (area / frameDelta.length > .6) { if (!skipNext && fullFrameChanges.length < 50) fullFrameChanges.push(timestamp); skipNext = !skipNext; }
+      else { skipNext = false; for (let q = 0; q < frameDelta.length; q++) if (frameDelta[q]! > maxDelta[q]!) maxDelta[q] = frameDelta[q]!; }
     }
     previous = frame;
   }, { timeoutMs: 240_000 });
@@ -159,12 +168,12 @@ export async function changeMap(ffmpeg: string, video: string, start: number, en
     for (let y = Math.floor(r * ch); y < Math.floor((r + 1) * ch); y++) for (let x = Math.floor(c * cw); x < Math.floor((c + 1) * cw); x++) { n++; if (maxDelta[y * width + x]! > 24) hot++; }
     if (hot / n > .15) hotspots.push({ x: c / cols, y: r / rows, width: 1 / cols, height: 1 / rows });
   }
-  const scale = 2, legend = Buffer.from(`<svg width="${width * scale}" height="24"><rect width="${width * scale}" height="24" fill="#111827"/><text x="8" y="17" font-family="Arial" font-size="13" fill="#f9fafb">${framesScanned} frames scanned · bright = changed at some point · peak ${peak.score.toFixed(3)} at ${peak.timestamp.toFixed(3)}s</text></svg>`);
+  const scale = 2, legend = Buffer.from(`<svg width="${width * scale}" height="24"><rect width="${width * scale}" height="24" fill="#111827"/><text x="8" y="17" font-family="Arial" font-size="13" fill="#f9fafb">${framesScanned} frames scanned · bright = changed at some point · peak ${peak.score.toFixed(3)} at ${peak.timestamp.toFixed(3)}s${fullFrameChanges.length ? ` · full-frame change at ${fullFrameChanges.slice(0, 3).map(t => `${t}s`).join(", ")}` : ""}</text></svg>`);
   await fs.mkdir(path.dirname(outputPath), { recursive: true });
   await sharp({ create: { width: width * scale, height: height * scale + 24, channels: 3, background: "#111827" } })
     .composite([{ input: await sharp(overlay, { raw: { width, height, channels: 3 } }).resize(width * scale, height * scale).png().toBuffer(), left: 0, top: 0 }, { input: legend, left: 0, top: height * scale }])
     .jpeg({ quality: 86 }).toFile(outputPath);
-  return { outputPath, framesScanned, peak, changedArea: Number((changed / maxDelta.length).toFixed(4)), hotspots: mergeHotspots(hotspots) };
+  return { outputPath, framesScanned, peak, changedArea: Number((changed / maxDelta.length).toFixed(4)), hotspots: mergeHotspots(hotspots), fullFrameChanges };
 }
 
 /** Merge adjacent hotspot cells in the same row so the result stays short. */
