@@ -62,6 +62,16 @@ describe("roundtable runs", () => {
     await rt.review({ ...s, roundtable: saved! }, { ...packet, text: "changed review" }, dir, async () => undefined);
     expect(fake.calls).toBe(2);
   });
+  it("does not re-audit an unchanged review after a reviewer drops out", async () => {
+    const good = new FakeReviewer("good", async () => ({ answer: answer({ agree: true }), tokens: { input: 7000, output: 50 } }));
+    const signedOut = new FakeReviewer("signed-out", async () => { throw new Error("Failed to authenticate: OAuth session expired"); });
+    const rt = new Roundtable(cfg, [signedOut, good]);
+    let saved: RoundtableRecord | undefined;
+    const first = await rt.review(session(), packet, dir, async r => { saved = r; });
+    expect(first.state).toBe("done");
+    await rt.review({ ...session(), roundtable: saved! }, packet, dir, async () => undefined);
+    expect(good.calls).toBe(1); expect(signedOut.calls).toBe(1);
+  });
   it("shares one run between concurrent callers", async () => {
     const fake = new FakeReviewer("slow", () => new Promise(r => setTimeout(() => r({ answer: answer() }), 100)));
     const rt = new Roundtable(cfg, [fake]);

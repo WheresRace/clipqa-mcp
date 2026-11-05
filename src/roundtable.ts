@@ -286,7 +286,9 @@ export class Roundtable {
     const imageHash = packet.imagePath ? createHash("sha256").update(await fs.readFile(packet.imagePath)).digest("hex") : "";
     const available: Reviewer[] = [];
     for (const r of this.reviewers) if (!this.disabled.has(r.name) && await r.available().catch(() => false)) available.push(r);
-    const key = Roundtable.key(packet, imageHash, available.map(r => r.name));
+    // Keyed on the review and the CONFIGURED panel, not on who is reachable right now: a reviewer dropping out
+    // (for example after a failed sign-in) must not make an unchanged review pay for a second audit.
+    const key = Roundtable.key(packet, imageHash, this.reviewers.map(r => r.name));
     if (session.roundtable?.key === key && session.roundtable.state === "done") return session.roundtable;
     const startedAt = new Date().toISOString();
     if (!available.length) {
