@@ -149,6 +149,30 @@ export interface MotionReport {
   warnings: string[];
 }
 
+const STEP = .015, STALL = .004;
+
+/**
+ * Frames that are unchanged only because an object is creeping under a pixel per frame (for example the slow
+ * ends of an ease). Rounding, not dropped frames: a stall of up to 4 frames whose neighbouring steps are at most
+ * half the movement's peak speed nearby. Dropped frames stall between steps as fast as the rest of the movement.
+ */
+export function creepStalls(scores: number[], fps: number): Set<number> {
+  const out = new Set<number>();
+  for (let i = 1; i < scores.length; i++) {
+    if (scores[i]! >= STALL) continue;
+    let j = i; while (j < scores.length && scores[j]! < STALL) j++;
+    const prev = scores[i - 1] ?? 0, next = scores[j] ?? 0;
+    if (j - i <= 4 && prev >= STEP && next >= STEP) {
+      // Robust peak: the 80th percentile of nearby movement, so one pop cannot excuse a real freeze.
+      const moving = scores.slice(Math.max(0, i - fps), j + fps + 1).filter(v => v >= STEP).sort((a, b) => a - b);
+      const peak = moving.length ? moving[Math.min(moving.length - 1, Math.floor(moving.length * .8))]! : 0;
+      if (Math.max(prev, next) * 2 <= peak) for (let k = i; k < j; k++) out.add(k);
+    }
+    i = j;
+  }
+  return out;
+}
+
 // Duplicate frames inside motion are hitches; isolated spikes far above local motion are pops/snaps.
 export function analyzeMotion(series: MotionSeries, recordedFps?: number): MotionReport {
   const { fps, start, scores, means } = series;
@@ -158,11 +182,13 @@ export function analyzeMotion(series: MotionSeries, recordedFps?: number): Motio
   const warnings: string[] = [];
   if (recordedFps && recordedFps < 30) warnings.push(`Recorded at ${recordedFps} FPS: hitches shorter than ${(1000 / recordedFps).toFixed(0)} ms cannot be seen. Record at 30-60 FPS to judge fluidity.`);
   const hitches: MotionReport["hitches"] = [];
+  const creep = creepStalls(scores, fps);
   let duplicateFrames = 0;
   for (let i = 1; i < means.length - 1; i++) {
     if (!frozen(i)) continue;
     let j = i; while (j < means.length - 1 && frozen(j)) j++;
     const before = moving.slice(Math.max(0, i - 3), i).some(Boolean), after = moving.slice(j, j + 3).some(Boolean);
+    if (creep.has(i)) { i = j; continue; }
     if (before && after && j - i <= fps) { duplicateFrames += j - i; hitches.push({ start: Number((start + (i - 1) / fps).toFixed(3)), end: Number((start + j / fps).toFixed(3)), frames: j - i }); }
     i = j;
   }

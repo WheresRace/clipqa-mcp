@@ -3,7 +3,7 @@ import path from "node:path";
 import sharp from "sharp";
 import type { CommandRunner } from "./process-runner.js";
 import { conciseError } from "./process-runner.js";
-import { analyzeMotion, cached, decodeFrames, difference, streamRawFrames, type MotionReport, type MotionSeries } from "./visual.js";
+import { analyzeMotion, cached, decodeFrames, creepStalls, difference, streamRawFrames, type MotionReport, type MotionSeries } from "./visual.js";
 import type { QaEvent, Region } from "./types.js";
 
 // Objective clip measurements, all from ONE decode pass at 320x180, and a before/after comparison that says
@@ -20,6 +20,8 @@ export interface ClipMetrics {
   exposure: { meanLuma: number; crushed: number; blown: number };
   color: { r: number; g: number; b: number };
   flickerPerSecond: number;
+  /** Single frames much brighter or darker than both neighbours (white or black flashes). */
+  flashes: Array<{ timestamp: number; delta: number }>;
   blackFrames: number;
   longestFreezeSeconds: number;
   settle: Array<{ label: string; seconds: number | null }>;
@@ -45,13 +47,15 @@ export function summarize(series: { fps: number; start: number; scores: number[]
   const moving = scores.map(s => s >= MOVING);
   // Inside motion, a near-zero delta is a repeated frame. Effective FPS = new frames per second while moving.
   const motionRuns = runs(n, i => moving[i]! || (scores[i]! < STILL && moving.slice(Math.max(0, i - 3), i).some(Boolean) && moving.slice(i + 1, i + 4).some(Boolean)));
+  const creep = creepStalls(scores, fps);
   let inMotion = 0, repeats = 0;
   const intervals: number[] = [];
   for (const [a, b] of motionRuns) {
     let last = -1;
     for (let i = a; i < b; i++) {
       inMotion++;
-      if (scores[i]! < STILL) { repeats++; continue; }
+      // A creep stall is the object moving under a pixel, not a late frame: count it as on time.
+      if (scores[i]! < STILL && !creep.has(i)) { repeats++; continue; }
       if (last >= 0) intervals.push(i - last);
       last = i;
     }
@@ -76,6 +80,12 @@ export function summarize(series: { fps: number; start: number; scores: number[]
   const stills = runs(n, i => scores[i]! < MOVING).filter(([a, b]) => b - a >= fps / 2);
   const stillValues = stills.flatMap(([a, b]) => means.slice(a + 1, b));
   // Flicker: brightness reversing direction by a visible amount on consecutive frames.
+  const flashes: ClipMetrics["flashes"] = [];
+  for (let i = 1; i < n - 1; i++) {
+    const up = Math.min(luma[i]! - luma[i - 1]!, luma[i]! - luma[i + 1]!), down = Math.min(luma[i - 1]! - luma[i]!, luma[i + 1]! - luma[i]!);
+    if (up > 20 || down > 20) flashes.push({ timestamp: round(start + i / fps), delta: round(up > 20 ? up : -down, 1) });
+  }
+  if (flashes.length) warnings.push(`${flashes.length} single-frame flash(es), first at ${flashes[0]!.timestamp}s.`);
   let flicker = 0;
   for (let i = 2; i < n; i++) { const d1 = luma[i - 1]! - luma[i - 2]!, d2 = luma[i]! - luma[i - 1]!; if (Math.abs(d1) > 3 && Math.abs(d2) > 3 && Math.sign(d1) !== Math.sign(d2)) flicker++; }
   const freezes = runs(n, i => i > 0 && scores[i]! < STILL && means[i]! < .0005);
@@ -99,7 +109,7 @@ export function summarize(series: { fps: number; start: number; scores: number[]
     sharpness: round(median(series.sharp), 1),
     exposure: { meanLuma: round(avg(luma), 1), crushed: round(avg(series.crushed), 4), blown: round(avg(series.blown), 4) },
     color: { r: round(avg(series.rgb.map(c => c[0])), 1), g: round(avg(series.rgb.map(c => c[1])), 1), b: round(avg(series.rgb.map(c => c[2])), 1) },
-    flickerPerSecond: round(flicker / Math.max(1 / fps, n / fps), 2), blackFrames: black, longestFreezeSeconds: round(longestFreeze, 2), settle, warnings,
+    flickerPerSecond: round(flicker / Math.max(1 / fps, n / fps), 2), flashes: flashes.slice(0, 20), blackFrames: black, longestFreezeSeconds: round(longestFreeze, 2), settle, warnings,
   };
 }
 
@@ -109,7 +119,7 @@ export async function clipMetrics(ffmpeg: string, video: string, start: number, 
   if (!(end > start) || end - start > 600) throw new Error("Measure a valid range up to 10 minutes.");
   const rate = Math.max(5, Math.min(60, Math.round(fps)));
   const raw = await cached(video, `metrics-${round(start)}-${round(end)}-${rate}${options.crop ? `-${Object.values(options.crop).map(v => v.toFixed(4)).join("_")}` : ""}`, "v1", async () => {
-    const width = 320, height = 180, px = width * height;
+    const width = 320, height = 180, px = width * height; // cache holds raw series only; summaries are recomputed
     const s = { fps: rate, start, scores: [] as number[], means: [] as number[], luma: [] as number[], sharp: [] as number[], crushed: [] as number[], blown: [] as number[], rgb: [] as Array<[number, number, number]> };
     const gray = new Float32Array(px);
     let previous: Buffer | undefined;
@@ -157,12 +167,14 @@ const SPECS: Array<[string, string, Direction, number, number]> = [
   ["exposure.crushed", "Crushed blacks (fraction)", "lower", .005, .25],
   ["exposure.blown", "Blown highlights (fraction)", "lower", .005, .25],
   ["flickerPerSecond", "Flicker per second", "lower", .3, .25],
+  ["flashCount", "Single-frame flashes", "lower", 0, 0],
   ["blackFrames", "Black frames", "lower", 1, 0],
   ["exposure.meanLuma", "Brightness (0-255)", "neutral", 6, 0],
   ["longestFreezeSeconds", "Longest frozen stretch (s)", "neutral", .3, 0],
 ];
 
 const read = (m: ClipMetrics, key: string): number | null => {
+  if (key === "flashCount") return Array.isArray(m.flashes) ? m.flashes.length : null;
   let v: unknown = m;
   for (const part of key.split(".")) v = (v as Record<string, unknown> | null)?.[part];
   return typeof v === "number" && Number.isFinite(v) ? v : null;

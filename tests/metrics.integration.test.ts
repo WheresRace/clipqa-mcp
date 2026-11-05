@@ -50,6 +50,25 @@ describe("clip quality metrics", () => {
     expect(easedM.easing!).toBeGreaterThan(linear.easing ?? 0);
   }, 60000);
 
+  it("does not mistake sub-pixel creep at the ends of an ease for dropped frames", async () => {
+    // Regression: integer-pixel stalls at the slow ends of an ease read as hitches and uneven pacing.
+    const m = (await clipMetrics(config.ffmpegPath, eased, 0, 2.9, 30)).metrics;
+    expect(m.motion.hitches).toBe(0);
+    expect(m.effectiveFps!).toBeGreaterThan(28);
+    const choppyM = (await clipMetrics(config.ffmpegPath, choppy, 0, 2.9, 30)).metrics;
+    expect(choppyM.motion.hitches).toBeGreaterThan(10);
+  }, 60000);
+
+  it("flags a single-frame flash", async () => {
+    const flash = path.join(dir, "flash.mp4");
+    await generate(flash, `${sweep("t*90")},drawbox=x=0:y=0:w=320:h=180:color=white:t=fill:enable='eq(n,40)'`);
+    const m = (await clipMetrics(config.ffmpegPath, flash, 0, 2.9, 30)).metrics;
+    expect(m.flashes).toHaveLength(1); expect(m.flashes[0]!.timestamp).toBeCloseTo(40 / 30, 1);
+    const clean = (await clipMetrics(config.ffmpegPath, smooth, 0, 2.9, 30)).metrics;
+    expect(clean.flashes).toHaveLength(0);
+    expect(compareMetrics(m, clean).improved).toContain("Single-frame flashes");
+  }, 60000);
+
   it("tracks exposure", async () => {
     const normal = (await clipMetrics(config.ffmpegPath, smooth, 0, 2.9, 30)).metrics;
     const darker = (await clipMetrics(config.ffmpegPath, dark, 0, 2.9, 30)).metrics;

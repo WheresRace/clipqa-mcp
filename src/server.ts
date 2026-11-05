@@ -353,7 +353,7 @@ export async function createServer(config: ClipQaConfig, options: { roundtable?:
       if (duration <= 0 || duration > 3600) throw new Error("Import a clip up to one hour long.");
       const extension = path.extname(filePath).toLowerCase();
       const id = randomUUID(), videoPath = path.join(store.sessionDir(id), `recording${/^\.[a-z0-9]{1,8}$/.test(extension) ? extension : ".bin"}`);
-      const session = { id, state: "stopped" as const, target: { title: label }, startedAt: new Date().toISOString(), stoppedAt: new Date().toISOString(), fps: 0, encoder: "imported", drawMouse: false, maxSeconds: duration, videoPath, events: [], ...(request ? { request } : {}) };
+      const session = { id, state: "stopped" as const, target: { title: label }, startedAt: new Date().toISOString(), stoppedAt: new Date().toISOString(), fps: Math.round(await media.frameRate(filePath)), encoder: "imported", drawMouse: false, maxSeconds: duration, videoPath, events: [], ...(request ? { request } : {}) };
       await store.create(session);
       try { await fs.copyFile(filePath, videoPath); }
       catch (error) { await store.update(id, s => ({ ...s, state: "failed", error: String(error) })); throw error; }
@@ -669,7 +669,9 @@ export async function createServer(config: ClipQaConfig, options: { roundtable?:
       const motion = await motionReport(session, startSeconds, end, crop, undefined).catch(() => undefined);
       const metrics = motion && "quality" in motion ? motion.quality : undefined;
       if (metrics) {
-        const auto = autoFindings(checkpoints, session.findings, metrics, session.fps);
+        const recordedFps = session.fps || Math.round(await media.frameRate(session.videoPath));
+        if (!session.fps) session = await store.update(sessionId, s => ({ ...s, fps: recordedFps }));
+        const auto = autoFindings(checkpoints, session.findings, metrics, recordedFps);
         session = await store.update(sessionId, s => ({ ...s, qualityMetrics: metrics, findings: [...(s.findings ?? []), ...auto] }));
       }
       const progress = scoreFindings(session.findings, checkpoints, session.qualityMetrics, session.fps);

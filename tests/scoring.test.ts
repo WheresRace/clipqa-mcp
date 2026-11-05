@@ -8,7 +8,7 @@ const metrics = (over: Partial<ClipMetrics> = {}): ClipMetrics => ({
   start: 0, end: 3, analysisFps: 60, frames: 180,
   motion: { fluidityScore: 98, verdict: "smooth", duplicateFrames: 0, speedVariation: .2, hitches: 0, pops: 0, movingFrames: 170 },
   effectiveFps: 60, pacing: { jitter: .05, longFrameRatio: 0 }, easing: .9, stillJitter: .01, sharpness: 300,
-  exposure: { meanLuma: 120, crushed: 0, blown: 0 }, color: { r: 120, g: 120, b: 120 }, flickerPerSecond: 0, blackFrames: 0, longestFreezeSeconds: 0, settle: [], warnings: [], ...over,
+  exposure: { meanLuma: 120, crushed: 0, blown: 0 }, color: { r: 120, g: 120, b: 120 }, flickerPerSecond: 0, flashes: [], blackFrames: 0, longestFreezeSeconds: 0, settle: [], warnings: [], ...over,
 });
 
 describe("graded scoring", () => {
