@@ -36,7 +36,7 @@ export function difference(a: Uint8Array, b: Uint8Array, width: number, height: 
 
 const regionKey = (crop?: Region) => crop ? `-${[crop.x, crop.y, crop.width, crop.height].map(v => v.toFixed(4)).join("_")}` : "";
 
-async function cached<T>(video: string, name: string, version: string, build: () => Promise<T>): Promise<T> {
+export async function cached<T>(video: string, name: string, version: string, build: () => Promise<T>): Promise<T> {
   const stat = await fs.stat(video);
   const cache = `${video}.${name}.json`;
   const key = `${stat.size}:${stat.mtimeMs}:${version}`;
@@ -48,24 +48,32 @@ async function cached<T>(video: string, name: string, version: string, build: ()
   return value;
 }
 
-function decodeFrames(ffmpeg: string, video: string, start: number, end: number, fps: number, width: number, height: number, crop: Region | undefined, onFrame: (frame: Buffer, index: number) => void): Promise<number> {
-  const bytes = width * height * 3;
+// Streams fixed-size RGB frames from FFmpeg. Fills one frame buffer at a time instead of re-concatenating
+// the whole pending buffer on every chunk, so memory stays flat for long clips.
+export function decodeFrames(ffmpeg: string, video: string, start: number, end: number, fps: number, width: number, height: number, crop: Region | undefined, onFrame: (frame: Buffer, index: number) => void, options: { timeoutMs?: number; pixelFormat?: "rgb24" | "gray" } = {}): Promise<number> {
+  const channels = options.pixelFormat === "gray" ? 1 : 3, bytes = width * height * channels;
   return new Promise<number>((resolve, reject) => {
-    const child = spawn(ffmpeg, ["-hide_banner", "-loglevel", "error", "-ss", String(start), "-protocol_whitelist", "file,pipe", "-i", video, "-t", String(end - start), "-an", "-vf", `${cropFilter(crop)}fps=${fps},scale=${width}:${height}`, "-pix_fmt", "rgb24", "-f", "rawvideo", "pipe:1"], { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
-    let pending = Buffer.alloc(0), count = 0, stderr = "";
-    const timeout = setTimeout(() => { child.kill(); reject(new Error("Visual analysis timed out; inspect a shorter range.")); }, 120_000);
+    const child = spawn(ffmpeg, ["-hide_banner", "-loglevel", "error", "-ss", String(start), "-protocol_whitelist", "file,pipe", "-i", video, "-t", String(end - start), "-an", "-vf", `${cropFilter(crop)}fps=${fps},scale=${width}:${height}`, "-pix_fmt", options.pixelFormat ?? "rgb24", "-f", "rawvideo", "pipe:1"], { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+    let frame = Buffer.allocUnsafe(bytes), filled = 0, count = 0, stderr = "", failed = false;
+    const timeout = setTimeout(() => { failed = true; child.kill(); reject(new Error("Visual analysis timed out; inspect a shorter range.")); }, options.timeoutMs ?? 120_000);
     child.stderr.on("data", chunk => { stderr = (stderr + String(chunk)).slice(-2000); });
     child.stdout.on("data", (chunk: Buffer) => {
-      pending = Buffer.concat([pending, chunk]);
-      while (pending.length >= bytes) {
-        onFrame(Buffer.from(pending.subarray(0, bytes)), count++);
-        pending = pending.subarray(bytes);
+      let offset = 0;
+      while (offset < chunk.length && !failed) {
+        const take = Math.min(bytes - filled, chunk.length - offset);
+        chunk.copy(frame, filled, offset, offset + take);
+        filled += take; offset += take;
+        if (filled === bytes) {
+          try { onFrame(frame, count++); } catch (error) { failed = true; clearTimeout(timeout); child.kill(); reject(error); return; }
+          frame = Buffer.allocUnsafe(bytes); filled = 0;
+        }
       }
     });
-    child.on("error", e => { clearTimeout(timeout); reject(e); });
+    child.on("error", e => { clearTimeout(timeout); if (!failed) { failed = true; reject(e); } });
     child.on("close", code => {
       clearTimeout(timeout);
-      if (code || !count || pending.length) return reject(new Error(`Visual analysis failed: ${stderr || "no complete frames"}`));
+      if (failed) return;
+      if (code || !count || filled) return reject(new Error(`Visual analysis failed: ${stderr || "no complete frames"}`));
       resolve(count);
     });
   });

@@ -17,6 +17,7 @@ import { listScreens } from "./backends.js";
 import { analyzeMotion, compareVideos, estimateLag, indexVideo, motionSeries } from "./visual.js";
 import { directoryBytes, deleteSession } from "./artifacts.js";
 import { blenderOrbitScript, locateViews, orbitViews, robloxOrbitScript, type OrbitOptions } from "./orbit.js";
+import { changeMap, frameStrip, onionSkin } from "./between.js";
 import { CHECKPOINTS, checklistText, scoreFindings, writeQaReport } from "./qa.js";
 import type { QaEvent, Region, RecordingSession } from "./types.js";
 
@@ -485,6 +486,27 @@ export async function createServer(config: ClipQaConfig): Promise<McpServer> {
       const file = path.join(directory, "zoom.jpg");
       const info = await media.zoomFrame(session.videoPath, timestamp, target, file, outputWidth, sharpen);
       return { content: [...textResult({ sessionId, timestamp, region: target, ...info, zoomPath: file, ...(info.magnification > 1.5 ? { note: `Upscaled ${info.magnification}x from ${info.sourceWidth}x${info.sourceHeight} source pixels; finer detail is interpolated, not recorded.` } : {}) }).content, await imageContent(file)] };
+    } catch (error) { return errorResult(error); }
+  });
+
+  server.registerTool("inspect_between", {
+    description: "See what happens BETWEEN sampled frames. strip: every frame (or every Nth) in a short range as a numbered grid, flagging repeated frames and sudden jumps. onion: moving parts from several frames layered into one image, blue (earliest) to red (latest), to show arcs, pops and sliding feet. changes: scans every frame in the range and maps everything that changed at any point, so flashes and glitches between samples are not missed. strip/onion cover up to 10 s, changes up to 60 s.",
+    inputSchema: z.object({ sessionId: z.string().uuid(), startSeconds: z.number().min(0), endSeconds: z.number().positive(), mode: z.enum(["strip", "onion", "changes"]).default("strip"), maxFrames: z.number().int().min(2).max(48).default(24).describe("strip: frames shown; onion: frames layered (max 16)."), region: region.optional() }),
+  }, async ({ sessionId, startSeconds, endSeconds, mode, maxFrames, region: crop }) => {
+    try {
+      const session = await completed(sessionId, "inspecting it");
+      const last = await media.lastFrameTime(session.videoPath), end = Math.min(endSeconds, last + .001);
+      if (startSeconds >= end) throw new Error("startSeconds must be before endSeconds and inside the clip.");
+      const fps = await media.frameRate(session.videoPath);
+      const file = path.join(store.sessionDir(sessionId), "between", randomUUID(), `${mode}.jpg`);
+      const opts = crop ? { crop } : {};
+      const result = mode === "strip" ? await frameStrip(config.ffmpegPath, session.videoPath, startSeconds, end, fps, file, { ...opts, maxFrames })
+        : mode === "onion" ? await onionSkin(config.ffmpegPath, session.videoPath, startSeconds, end, fps, file, { ...opts, frames: maxFrames })
+        : await changeMap(config.ffmpegPath, session.videoPath, startSeconds, end, fps, file, opts);
+      const summary = "step" in result
+        ? { ...result, frames: result.frames.filter(f => f.kind !== "normal"), framesShown: result.frames.length, note: result.step > 1 ? `Every ${result.step}th frame shown; narrow the range to see all frames.` : "Every frame shown." }
+        : result;
+      return { content: [...textResult({ sessionId, mode, startSeconds, endSeconds: end, ...summary }).content, await imageContent(file)] };
     } catch (error) { return errorResult(error); }
   });
 
