@@ -14,7 +14,9 @@ All notable changes will be documented here.
 - Fix: event timestamps are measured from the first captured frame, not session creation, so live events line up with the video.
 - Faster: batched frame extraction, per-process caching of capture capability and encoder probes, and a precompiled Windows window-list helper.
 - `get_frames` validates all timestamps before extracting; the server version is read from package.json.
-- Stop committing `build/`; GitHub installs build via `prepare`.
+- Stop committing `build/`. Installing from a GitHub link (`github:WheresRace/clipqa-mcp`) is no longer supported: it reinstalled and recompiled everything on each launch, could loop past client startup timeouts and flood the disk. Use the npm package.
+- Remove the `prepare` script so a GitHub install fails fast instead of compiling in a restart loop.
+- Stop active recordings and exit cleanly when the MCP client closes stdin or sends SIGINT/SIGTERM/SIGHUP/SIGBREAK.
 
 ## 0.2.1 - 2026-09-15
 

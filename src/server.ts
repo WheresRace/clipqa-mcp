@@ -628,4 +628,16 @@ export async function createServer(config: ClipQaConfig): Promise<McpServer> {
 export async function serve(config: ClipQaConfig): Promise<void> {
   const server = await createServer(config);
   await server.connect(new StdioServerTransport());
+  // Stop FFmpeg before exiting whenever the MCP client goes away, so no capture outlives this process.
+  let exiting = false;
+  const exit = (code: number) => {
+    if (exiting) return;
+    exiting = true;
+    const force = setTimeout(() => process.exit(code), 8000);
+    force.unref();
+    server.close().catch(() => undefined).finally(() => process.exit(code));
+  };
+  process.stdin.once("end", () => exit(0));
+  process.stdin.once("close", () => exit(0));
+  for (const signal of ["SIGINT", "SIGTERM", "SIGHUP", "SIGBREAK"] as const) process.once(signal, () => exit(0));
 }

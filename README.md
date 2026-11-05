@@ -29,6 +29,8 @@ MCP client configuration:
 }
 ```
 
+> **Using an older `github:WheresRace/clipqa-mcp` config? Switch it now.** That route made npx download, install and compile the whole repository on every launch. It could exceed the client's startup timeout, restart in a loop and flood the disk. On Windows that caused severe slowdowns. Replace it with `"args": ["-y", "clipqa-mcp"]`, or install once with `npm install -g clipqa-mcp` and use `"command": "clipqa-mcp"` with no args (fastest startup, no network on launch). Installing from a GitHub link is no longer supported.
+
 Node.js 20+ is required. FFmpeg and FFprobe are supplied through package dependencies. Override their locations with `CLIPQA_FFMPEG_PATH` and `CLIPQA_FFPROBE_PATH`. Change the session directory with `CLIPQA_DATA_DIR` (default `~/.clipqa/sessions`).
 
 ### Stronger Windows capture

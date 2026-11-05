@@ -26,8 +26,7 @@
     "benchmark": "tsx benchmarks/temporal-coverage.ts",
     "setup:wgc": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/install-wgc.ps1",
     "start": "node build/index.js",
-    "prepack": "npm run build && npm test",
-    "prepare": "tsc -p tsconfig.json"
+    "prepack": "npm run build && npm test"
   },
   "keywords": [
     "mcp",
