@@ -1,3 +1,5 @@
+import type { ClipMetrics } from "./metrics.js";
+
 export type SessionState = "recording" | "stopped" | "failed" | "interrupted";
 
 export interface CaptureTarget {
@@ -21,6 +23,8 @@ export type FindingSeverity = "blocker" | "major" | "minor";
 export interface QaFinding {
   checkpoint: string;
   status: FindingStatus;
+  /** 0 broken, 1 poor, 2 acceptable, 3 good (meets the standard), 4 excellent. */
+  grade?: number;
   severity?: FindingSeverity;
   note: string;
   timestampSeconds?: number;
@@ -58,6 +62,22 @@ export interface RecordingSession {
   crop?: Region;
   request?: string;
   findings?: QaFinding[];
+  profile?: "character" | "ui" | "vfx" | "camera" | "gameplay" | "general";
+  requirements?: string[];
+  /** Measurements from the last qa_review, used for auto grades and bonus points. */
+  qualityMetrics?: ClipMetrics;
+  roundtable?: RoundtableRecord;
+}
+
+export interface RoundtableRecord {
+  key: string;
+  state: "running" | "done" | "skipped" | "failed";
+  startedAt: string;
+  finishedAt?: string;
+  reviewers: Array<{ name: string; ok: boolean; tokens?: { input: number; output: number }; seconds?: number; error?: string }>;
+  challenges: Array<{ checkpoint: string; issue: string; kind: "missed" | "disputed"; suggestedGrade?: number; timestampSeconds?: number; raisedBy: string[] }>;
+  agreement?: number;
+  note?: string;
 }
 
 export interface WindowInfo {

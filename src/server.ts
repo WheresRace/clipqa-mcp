@@ -20,7 +20,7 @@ import { blenderOrbitScript, locateViews, orbitViews, robloxOrbitScript, type Or
 import { changeMap, frameStrip, onionSkin } from "./between.js";
 import { clipMetrics, compareMetrics, differenceTimeline, sideBySide } from "./metrics.js";
 import { escapeXml } from "./media.js";
-import { CHECKPOINTS, checklistText, scoreFindings, writeQaReport } from "./qa.js";
+import { autoFindings, checklistText, compareReviews, PROFILES, scoreFindings, sessionCheckpoints, writeQaReport } from "./qa.js";
 import type { QaEvent, Region, RecordingSession } from "./types.js";
 
 export const VERSION: string = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;
@@ -399,6 +399,7 @@ export async function createServer(config: ClipQaConfig): Promise<McpServer> {
         ...(qualityResult ? { quality: { overall: qualityResult.overall, improved: qualityResult.improved, regressed: qualityResult.regressed, changed: qualityResult.changed, rows: qualityResult.rows.filter(r => r.verdict !== "unchanged" && r.verdict !== "n/a") } } : {}),
         ...(line ? { timeline: { divergent: line.divergent, peak: line.peak, mean: line.mean, framesCompared: line.samples, chartPath: line.chartPath } } : {}),
         ...(video ? { sideBySideVideo: video.videoPath } : {}),
+        ...(before.findings?.length && after.findings?.length ? { review: compareReviews(before, after) } : {}),
         changedSamples: report.changedSamples, samples: report.rows.length, previewSample: report.previewSample,
         rows: report.rows.filter(r => r.changed).map(r => ({ beforeSeconds: r.beforeSeconds, afterSeconds: r.afterSeconds, score: Number(r.score.toFixed(4)), ssim: Number(r.ssim.toFixed(4)), changed: r.changed, ...(r.note ? { note: r.note } : {}) })),
         reportPath: report.reportPath, jsonPath: report.jsonPath,
@@ -627,11 +628,12 @@ export async function createServer(config: ClipQaConfig): Promise<McpServer> {
 
   server.registerTool("qa_review", {
     description: "Start a structured quality review of a completed clip: returns the checklist (body proportions, twisted meshes, pose vs request, fluidity, every-angle coverage, materials) with what to look for and how to verify each item, an event-aware contact sheet, and an automatic fluidity check. Then record_finding for every checkpoint and qa_report for the score.",
-    inputSchema: z.object({ sessionId: z.string().uuid(), request: z.string().max(4000).optional().describe("What the user asked for, e.g. \"character waves with the left hand while standing on one foot\"."), startSeconds: z.number().min(0).default(0), endSeconds: z.number().positive().optional(), samples: z.number().int().min(4).max(24).default(12), region: region.optional() }),
-  }, async ({ sessionId, request, startSeconds, endSeconds, samples, region: crop }) => {
+    inputSchema: z.object({ sessionId: z.string().uuid(), request: z.string().max(4000).optional().describe("What the user asked for, e.g. \"character waves with the left hand while standing on one foot\"."), profile: z.enum(PROFILES).optional().describe("Checklist for the kind of work: character (models/animation, default), ui, vfx, camera, gameplay, general."), requirements: z.array(z.string().min(2).max(300)).max(12).optional().describe("Specific must-pass requirements, e.g. [\"waves with the LEFT hand\", \"loop is seamless\"]. Each becomes its own checkpoint."), startSeconds: z.number().min(0).default(0), endSeconds: z.number().positive().optional(), samples: z.number().int().min(4).max(24).default(12), region: region.optional() }),
+  }, async ({ sessionId, request, profile, requirements, startSeconds, endSeconds, samples, region: crop }) => {
     try {
       let session = await completed(sessionId, "reviewing it");
-      if (request) session = await store.update(sessionId, s => ({ ...s, request }));
+      if (request || profile || requirements) session = await store.update(sessionId, s => ({ ...s, ...(request ? { request } : {}), ...(profile ? { profile } : {}), ...(requirements ? { requirements } : {}) }));
+      const checkpoints = sessionCheckpoints(session);
       const last = await media.lastFrameTime(session.videoPath);
       const end = Math.min(endSeconds ?? last, last);
       if (startSeconds >= end) throw new Error("startSeconds must be before the end of the clip.");
@@ -640,22 +642,27 @@ export async function createServer(config: ClipQaConfig): Promise<McpServer> {
       const sheet = path.join(store.sessionDir(sessionId), "qa", randomUUID(), "overview.jpg");
       await media.createContactSheet(session.videoPath, sheet, timestamps, { labels: timestamps.map(t => eventsNear(session.events, t, .25)), ...(crop ? { crop } : {}) });
       const motion = await motionReport(session, startSeconds, end, crop, undefined).catch(() => undefined);
-      if (motion && motion.verdict !== "no motion" && !session.findings?.some(f => f.checkpoint === "motion.fluidity")) {
-        const status = motion.verdict === "smooth" && !motion.warnings.length ? "pass" : motion.verdict === "choppy" ? "fail" : "unclear";
-        const note = `auto: fluidity ${motion.fluidityScore}/100 (${motion.verdict}); ${motion.hitches.length} hitches, ${motion.pops.length} pops${motion.pops[0] ? ` (first pop at ${motion.pops[0].timestamp}s)` : ""}. ${motion.warnings.join(" ")}`.trim();
-        session = await store.update(sessionId, s => ({ ...s, findings: [...(s.findings ?? []), { checkpoint: "motion.fluidity", status, ...(status === "fail" ? { severity: "major" as const } : {}), note, recordedAt: new Date().toISOString() }] }));
+      const metrics = motion && "quality" in motion ? motion.quality : undefined;
+      if (metrics) {
+        const auto = autoFindings(checkpoints, session.findings, metrics, session.fps);
+        session = await store.update(sessionId, s => ({ ...s, qualityMetrics: metrics, findings: [...(s.findings ?? []), ...auto] }));
       }
-      const progress = scoreFindings(session.findings);
-      return { content: [{ type: "text" as const, text: checklistText(session.request) }, ...textResult({ sessionId, timestamps, motion: motion ?? null, progress, overviewPath: sheet }).content, await imageContent(sheet)] };
+      const progress = scoreFindings(session.findings, checkpoints, session.qualityMetrics, session.fps);
+      const measured = metrics ? { smoothness: metrics.motion.fluidityScore, realFps: metrics.effectiveFps, pacing: metrics.pacing, easing: metrics.easing, stillJitter: metrics.stillJitter, flickerPerSecond: metrics.flickerPerSecond, blackFrames: metrics.blackFrames, hitches: motion?.hitches.slice(0, 5), pops: motion?.pops.slice(0, 5), settle: metrics.settle.slice(0, 6), warnings: metrics.warnings } : null;
+      return { content: [{ type: "text" as const, text: checklistText(session.request, checkpoints, session.profile ?? "character") }, ...textResult({ sessionId, timestamps, measured, autoGraded: (session.findings ?? []).filter(f => f.note.startsWith("auto:")).map(f => `${f.checkpoint}: ${f.grade}/4`), progress: { score: progress.score, bonus: progress.bonus, verdict: progress.verdict, remaining: progress.unchecked }, overviewPath: sheet }).content, await imageContent(sheet)] };
     } catch (error) { return errorResult(error); }
   });
 
   server.registerTool("record_finding", {
     description: "Record the result of one review checkpoint (pass, fail or unclear) with a specific note. With timestampSeconds (and optionally region), a zoomed evidence image is saved into the report. Recording a checkpoint again replaces the earlier result.",
-    inputSchema: z.object({ sessionId: z.string().uuid(), checkpoint: z.enum(CHECKPOINTS.map(c => c.id) as [string, ...string[]]), status: z.enum(["pass", "fail", "unclear"]), severity: z.enum(["blocker", "major", "minor"]).optional(), note: z.string().min(3).max(2000), timestampSeconds: z.number().min(0).optional(), view: z.string().max(120).optional(), region: region.optional() }),
-  }, async ({ sessionId, checkpoint, status, severity, note, timestampSeconds, view, region: area }) => {
+    inputSchema: z.object({ sessionId: z.string().uuid(), checkpoint: z.string().min(3).max(60).describe("A checkpoint id from the qa_review checklist, e.g. mesh.twisting or req.1."), grade: z.number().int().min(0).max(4).optional().describe("0 broken, 1 poor, 2 acceptable, 3 good (meets the standard), 4 excellent (beyond it; earns bonus)."), status: z.enum(["pass", "fail", "unclear"]).optional().describe("Optional when grade is given: 0-1 fail, 2-4 pass."), severity: z.enum(["blocker", "major", "minor"]).optional(), note: z.string().min(3).max(2000), timestampSeconds: z.number().min(0).optional(), view: z.string().max(120).optional(), region: region.optional() }).refine(v => v.grade !== undefined || v.status !== undefined, "Give a grade (0-4) or a status."),
+  }, async ({ sessionId, checkpoint, grade, status: given, severity, note, timestampSeconds, view, region: area }) => {
     try {
       const session = await store.read(sessionId);
+      const valid = sessionCheckpoints(session).map(c => c.id);
+      if (!valid.includes(checkpoint)) throw new Error(`Unknown checkpoint "${checkpoint}" for the ${session.profile ?? "character"} profile. Valid: ${valid.join(", ")}.`);
+      const status = given ?? (grade! >= 2 ? "pass" : "fail");
+      if (grade !== undefined && ((status === "pass" && grade < 2) || (status === "fail" && grade > 1))) throw new Error("grade and status disagree: grades 0-1 are fails, 2-4 are passes.");
       let evidencePath: string | undefined;
       if (timestampSeconds !== undefined && session.state === "stopped") {
         if (timestampSeconds >= await media.duration(session.videoPath)) throw new Error("timestampSeconds must be inside the clip.");
@@ -663,15 +670,15 @@ export async function createServer(config: ClipQaConfig): Promise<McpServer> {
         if (area) await media.zoomFrame(session.videoPath, timestampSeconds, area, evidencePath, 640, true);
         else await media.extractFrame(session.videoPath, timestampSeconds, evidencePath, 640);
       }
-      const finding = { checkpoint, status, ...(status === "fail" ? { severity: severity ?? "major" } : severity ? { severity } : {}), note, ...(timestampSeconds !== undefined ? { timestampSeconds } : {}), ...(view ? { view } : {}), ...(area ? { region: area } : {}), ...(evidencePath ? { evidencePath } : {}), recordedAt: new Date().toISOString() };
+      const finding = { checkpoint, status, ...(grade !== undefined ? { grade } : {}), ...(status === "fail" ? { severity: severity ?? "major" } : severity ? { severity } : {}), note, ...(timestampSeconds !== undefined ? { timestampSeconds } : {}), ...(view ? { view } : {}), ...(area ? { region: area } : {}), ...(evidencePath ? { evidencePath } : {}), recordedAt: new Date().toISOString() };
       const updated = await store.update(sessionId, s => ({ ...s, findings: [...(s.findings ?? []), finding] }));
-      const progress = scoreFindings(updated.findings);
-      return textResult({ recorded: finding, progress: { score: progress.score, verdict: progress.verdict, checked: `${progress.checked}/${progress.of}`, remaining: progress.unchecked } });
+      const progress = scoreFindings(updated.findings, sessionCheckpoints(updated), updated.qualityMetrics, updated.fps);
+      return textResult({ recorded: { checkpoint, status, grade: grade ?? null }, progress: { score: progress.score, bonus: progress.bonus, verdict: progress.verdict, checked: `${progress.checked}/${progress.of}`, remaining: progress.unchecked } });
     } catch (error) { return errorResult(error); }
   });
 
   server.registerTool("qa_report", {
-    description: "Score the review: points per checkpoint (pass full, unclear half, fail none), verdict PASS / NEEDS WORK / FAIL (any blocker) / INCOMPLETE (unchecked items), and a standalone HTML/JSON report with evidence images.",
+    description: "Score the review: points per checkpoint by grade (3 good/pass full, 2 acceptable 70%, 1 poor 25%, 0 none, unclear half), up to +10 bonus points for measured smoothness, full frame rate, even pacing, easing and steadiness and for excellent grades, a letter grade, verdict PASS / NEEDS WORK / FAIL (any blocker) / INCOMPLETE (unchecked items), and a standalone HTML/JSON report with evidence images.",
     inputSchema: z.object({ sessionId: z.string().uuid() }),
   }, async ({ sessionId }) => {
     try {
