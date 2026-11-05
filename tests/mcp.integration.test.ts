@@ -36,6 +36,7 @@ describe("MCP integration", () => {
         "get_clip",
         "get_frames",
         "import_clip",
+        "inspect_between",
         "inspect_clip",
         "list_sessions",
         "list_sources",
